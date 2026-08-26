@@ -1,0 +1,27 @@
+# Build directories
+build/
+bin/
+lib/
+out/
+.cache/
+
+# IDE & Editor files
+.vscode/
+.vs/
+.idea/
+*.user
+*.suo
+
+# Operating System files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Temporary / Log files
+*.log
+*.tmp
+*.bak
+
+# Databases runtime files (if any local db instance files shouldn't be committed)
+*.sqlite
+*.db
