@@ -28,6 +28,10 @@ set(CORE_SOURCES
     src/engine/graph_engine.cpp
     src/server/router.cpp
     src/server/http_server.cpp
+    src/controllers/account_controller.cpp
+    src/controllers/transaction_controller.cpp
+    src/controllers/complaint_controller.cpp
+    src/controllers/auth_controller.cpp
 )
 
 add_library(trustgraph_core STATIC ${CORE_SOURCES})

@@ -42,6 +42,10 @@ public:
         add_route(HttpMethod::DELETE_METHOD, pattern, requirement, std::move(handler));
     }
 
+    void patch(const std::string& pattern, auth::RoleRequirement requirement, RouteHandler handler) {
+        add_route(HttpMethod::PATCH, pattern, requirement, std::move(handler));
+    }
+
     HttpResponse handle_request(HttpRequest req) const;
 
     static std::vector<std::string> split_path(const std::string& path);

@@ -5,6 +5,8 @@
 #include "auth/jwt_manager.hpp"
 #include "auth/rbac_middleware.hpp"
 #include "server/router.hpp"
+#include "controllers/complaint_controller.hpp"
+#include "controllers/account_controller.hpp"
 #include "utils/json.hpp"
 
 using json = nlohmann::json;
@@ -19,86 +21,12 @@ void test_complaints_and_taint_engine() {
     auto rbac_middleware = std::make_shared<auth::RbacMiddleware>(jwt_manager);
     auto router = std::make_shared<server::Router>(rbac_middleware);
 
-    // Register complaints routes
-    router->post("/api/v1/complaints", auth::RoleRequirement::CONSUMER_ONLY, [db](const server::HttpRequest& req, const auth::AuthContext& auth_ctx) {
-        if (!auth_ctx.associated_account_id.has_value() || auth_ctx.associated_account_id->empty()) {
-            return server::HttpResponse::error(403, "Forbidden", "Consumer profile has no associated bank account");
-        }
+    // Register controllers
+    auto complaint_controller = std::make_shared<controllers::ComplaintController>(db);
+    complaint_controller->register_routes(router);
 
-        json body;
-        try {
-            body = json::parse(req.body);
-        } catch (...) {
-            return server::HttpResponse::error(400, "Bad Request", "Malformed JSON");
-        }
-
-        std::string tx_id = body.value("transaction_id", "");
-        std::string suspect_upi = body.value("suspect_upi_id", "");
-        std::string scam_cat = body.value("scam_category", "");
-        std::string desc = body.value("description", "");
-
-        auto tx_opt = db->find_transaction_by_id(tx_id);
-        if (!tx_opt.has_value()) {
-            return server::HttpResponse::error(404, "Not Found", "Transaction not found");
-        }
-
-        if (tx_opt->sender_account_id != *auth_ctx.associated_account_id) {
-            return server::HttpResponse::error(403, "Forbidden", "Access denied: unowned transaction");
-        }
-
-        auto suspect_acc_opt = db->find_account_by_upi(suspect_upi);
-        if (!suspect_acc_opt.has_value() || suspect_acc_opt->account_id != tx_opt->receiver_account_id) {
-            return server::HttpResponse::error(400, "Bad Request", "Suspect UPI does not match recipient");
-        }
-
-        models::FraudComplaint cmp;
-        cmp.complaint_id = "CMP-TEST-" + std::to_string(db->list_complaints().size() + 1);
-        cmp.complainant_account_id = *auth_ctx.associated_account_id;
-        cmp.suspect_account_id = suspect_acc_opt->account_id;
-        cmp.transaction_id = tx_id;
-        cmp.amount = tx_opt->amount;
-        cmp.scam_category = scam_cat;
-        cmp.description = desc;
-        cmp.status = "SUBMITTED";
-        cmp.created_at = tx_opt->timestamp;
-        db->create_complaint(cmp);
-
-        // Auto-taint feedback
-        size_t active_complaints = db->count_complaints_for_suspect(suspect_acc_opt->account_id);
-        if (active_complaints >= 2) {
-            db->apply_taint_update(suspect_acc_opt->account_id, 25.0, models::AccountStatus::FLAGGED);
-        }
-
-        return server::HttpResponse::json(201, {
-            {"complaint_id", cmp.complaint_id},
-            {"status", cmp.status},
-            {"message", "Complaint logged in Bank Fraud Registry. Taint score updated on recipient node."},
-            {"timestamp", cmp.created_at}
-        });
-    });
-
-    router->get("/api/v1/complaints", auth::RoleRequirement::BANK_EMPLOYEE_ONLY, [db](const server::HttpRequest& req, const auth::AuthContext&) {
-        std::optional<std::string> status_filter = std::nullopt;
-        auto it = req.query_params.find("status");
-        if (it != req.query_params.end() && !it->second.empty()) {
-            status_filter = it->second;
-        }
-
-        auto complaints = db->list_complaints(status_filter, 50);
-        json list = json::array();
-        for (const auto& c : complaints) {
-            list.push_back(c.to_json());
-        }
-        return server::HttpResponse::json(200, {{"total", list.size()}, {"complaints", list}});
-    });
-
-    router->put("/api/v1/complaints/:complaint_id/status", auth::RoleRequirement::BANK_EMPLOYEE_ONLY, [db](const server::HttpRequest& req, const auth::AuthContext&) {
-        std::string cmp_id = req.path_params.at("complaint_id");
-        json body = json::parse(req.body);
-        std::string new_status = body.value("status", "");
-        db->update_complaint_status(cmp_id, new_status);
-        return server::HttpResponse::json(200, {{"complaint_id", cmp_id}, {"status", new_status}});
-    });
+    auto account_controller = std::make_shared<controllers::AccountController>(db);
+    account_controller->register_routes(router);
 
     // Create tokens
     auth::JwtTokenClaims consumer_claims;
@@ -181,7 +109,61 @@ void test_complaints_and_taint_engine() {
     assert(suspect_after->status == models::AccountStatus::FLAGGED);
     assert(suspect_after->risk_score >= std::min(100.0, suspect_score_before + 25.0));
 
-    // 5. Bank Employee Triage List
+    // 5. Test External Dispute Submission (Without transaction_id)
+    models::Account ext_suspect;
+    ext_suspect.account_id = "ACC-EXT-001";
+    ext_suspect.upi_id = "ext_scammer@okaxis";
+    ext_suspect.holder_name = "External Scammer";
+    ext_suspect.balance = 20000.0;
+    ext_suspect.risk_score = 10.0;
+    ext_suspect.status = models::AccountStatus::ACTIVE;
+    db->create_account(ext_suspect);
+
+    server::HttpRequest ext_cmp1_req;
+    ext_cmp1_req.method = server::HttpMethod::POST;
+    ext_cmp1_req.path = "/api/v1/complaints";
+    ext_cmp1_req.headers["Authorization"] = "Bearer " + consumer_token;
+    ext_cmp1_req.body = "{\"suspect_upi_id\":\"ext_scammer@okaxis\",\"scam_category\":\"IMPERSONATION\",\"amount\":8500.0,\"description\":\"Phishing SMS link\"}";
+
+    auto ext_cmp1_res = router->handle_request(ext_cmp1_req);
+    assert(ext_cmp1_res.status_code == 201);
+    auto ext_cmp1_json = json::parse(ext_cmp1_res.body);
+    assert(ext_cmp1_json["status"] == "SUBMITTED");
+
+    // Verify +25.0 instant taint increment: 10.0 -> 35.0
+    auto ext_after1 = db->find_account_by_upi("ext_scammer@okaxis");
+    assert(ext_after1->risk_score == 35.0);
+    assert(ext_after1->status == models::AccountStatus::ACTIVE);
+
+    // 2nd complaint from other consumer on the same external suspect
+    server::HttpRequest ext_cmp2_req;
+    ext_cmp2_req.method = server::HttpMethod::POST;
+    ext_cmp2_req.path = "/api/v1/complaints";
+    ext_cmp2_req.headers["Authorization"] = "Bearer " + other_consumer_token;
+    ext_cmp2_req.body = "{\"suspect_upi_id\":\"ext_scammer@okaxis\",\"scam_category\":\"INVESTMENT_FRAUD\",\"amount\":12000.0,\"description\":\"Second victim report\"}";
+
+    auto ext_cmp2_res = router->handle_request(ext_cmp2_req);
+    assert(ext_cmp2_res.status_code == 201);
+
+    // Verify 2nd taint update: 35.0 + 25.0 = 60.0 and auto-flagged (complaints >= 2)
+    auto ext_after2 = db->find_account_by_upi("ext_scammer@okaxis");
+    assert(ext_after2->risk_score == 60.0);
+    assert(ext_after2->status == models::AccountStatus::FLAGGED);
+
+    // Verify verify-risk reflects updated score and FLAGGED status immediately
+    server::HttpRequest verify_ext_req;
+    verify_ext_req.method = server::HttpMethod::GET;
+    verify_ext_req.path = "/api/v1/accounts/verify-risk/ext_scammer@okaxis";
+    verify_ext_req.headers["Authorization"] = "Bearer " + consumer_token;
+    auto verify_ext_res = router->handle_request(verify_ext_req);
+    assert(verify_ext_res.status_code == 200);
+    auto verify_ext_json = json::parse(verify_ext_res.body);
+    assert(verify_ext_json["status"] == "FLAGGED");
+    assert(verify_ext_json["risk_score"] == 60.0);
+    assert(verify_ext_json["complaints_count"] == 2);
+    assert(verify_ext_json["is_safe_to_pay"] == false);
+
+    // 6. Bank Employee Triage List
     server::HttpRequest triage_req;
     triage_req.method = server::HttpMethod::GET;
     triage_req.path = "/api/v1/complaints";
@@ -189,9 +171,9 @@ void test_complaints_and_taint_engine() {
     auto triage_res = router->handle_request(triage_req);
     assert(triage_res.status_code == 200);
     auto triage_json = json::parse(triage_res.body);
-    assert(triage_json["total"] == 2);
+    assert(triage_json["total"] == 4);
 
-    // 6. Consumer denied triage access
+    // 7. Consumer denied triage access
     server::HttpRequest consumer_triage_req;
     consumer_triage_req.method = server::HttpMethod::GET;
     consumer_triage_req.path = "/api/v1/complaints";
@@ -199,7 +181,7 @@ void test_complaints_and_taint_engine() {
     auto consumer_triage_res = router->handle_request(consumer_triage_req);
     assert(consumer_triage_res.status_code == 403);
 
-    // 7. Bank Employee updates complaint status
+    // 8. Bank Employee updates complaint status
     server::HttpRequest update_status_req;
     update_status_req.method = server::HttpMethod::PUT;
     update_status_req.path = "/api/v1/complaints/" + cmp1_id + "/status";

@@ -5,6 +5,8 @@
 #include "auth/jwt_manager.hpp"
 #include "auth/rbac_middleware.hpp"
 #include "server/router.hpp"
+#include "controllers/account_controller.hpp"
+#include "controllers/transaction_controller.hpp"
 #include "utils/json.hpp"
 
 using json = nlohmann::json;
@@ -19,82 +21,12 @@ void test_explainability_and_risk_verification() {
     auto rbac_middleware = std::make_shared<auth::RbacMiddleware>(jwt_manager);
     auto router = std::make_shared<server::Router>(rbac_middleware);
 
-    // Register verify-risk route
-    router->get("/api/v1/accounts/verify-risk/:upi_id", auth::RoleRequirement::ANY_AUTHENTICATED, [db](const server::HttpRequest& req, const auth::AuthContext&) {
-        std::string upi_id = req.path_params.at("upi_id");
-        auto acc_opt = db->find_account_by_upi(upi_id);
-        if (!acc_opt.has_value()) {
-            return server::HttpResponse::error(404, "Not Found", "Recipient UPI ID not found");
-        }
+    // Register controllers
+    auto account_controller = std::make_shared<controllers::AccountController>(db);
+    account_controller->register_routes(router);
 
-        const auto& acc = *acc_opt;
-        std::vector<std::string> signals;
-        bool is_safe = true;
-        std::string risk_level = "LOW";
-        std::string recommended_action = "Safe to proceed";
-
-        if (acc.status == models::AccountStatus::FLAGGED || acc.risk_score >= 70.0) {
-            signals.push_back("Recipient marked FLAGGED");
-            is_safe = false;
-            risk_level = "CRITICAL";
-            recommended_action = "Do not send funds";
-        } else {
-            signals.push_back("Clean history");
-        }
-
-        json response_json = {
-            {"upi_id", acc.upi_id},
-            {"account_id", acc.account_id},
-            {"holder_name", acc.holder_name},
-            {"risk_score", acc.risk_score},
-            {"risk_level", risk_level},
-            {"account_status", models::account_status_to_string(acc.status)},
-            {"is_safe_to_pay", is_safe},
-            {"signals", signals},
-            {"recommended_action", recommended_action}
-        };
-        return server::HttpResponse::json(200, response_json);
-    });
-
-    // Register flag-details route
-    router->get("/api/v1/transactions/:transaction_id/flag-details", auth::RoleRequirement::ANY_AUTHENTICATED, [db](const server::HttpRequest& req, const auth::AuthContext& auth_ctx) {
-        std::string tx_id = req.path_params.at("transaction_id");
-        auto tx_opt = db->find_transaction_by_id(tx_id);
-        if (!tx_opt.has_value()) {
-            return server::HttpResponse::error(404, "Not Found", "Transaction not found");
-        }
-
-        if (auth_ctx.is_consumer()) {
-            if (!auth_ctx.associated_account_id.has_value() ||
-                (tx_opt->sender_account_id != *auth_ctx.associated_account_id &&
-                 tx_opt->receiver_account_id != *auth_ctx.associated_account_id)) {
-                return server::HttpResponse::error(403, "Forbidden", "Access denied");
-            }
-        }
-
-        auto flag_opt = db->find_flag_by_transaction_id(tx_id);
-        if (!flag_opt.has_value()) {
-            return server::HttpResponse::json(200, {
-                {"transaction_id", tx_opt->transaction_id},
-                {"status", models::transaction_status_to_string(tx_opt->status)},
-                {"risk_score", 0.0},
-                {"risk_level", "LOW"}
-            });
-        }
-
-        json flag_response = {
-            {"transaction_id", tx_opt->transaction_id},
-            {"amount", tx_opt->amount},
-            {"timestamp", tx_opt->timestamp},
-            {"status", models::transaction_status_to_string(tx_opt->status)},
-            {"risk_score", flag_opt->risk_score},
-            {"risk_level", flag_opt->risk_level},
-            {"explanation_title", flag_opt->explanation_title},
-            {"warning_reasons", flag_opt->reasons},
-            {"recommended_action", flag_opt->recommended_action}
-        };
-        return server::HttpResponse::json(200, flag_response);
-    });
+    auto transaction_controller = std::make_shared<controllers::TransactionController>(db);
+    transaction_controller->register_routes(router);
 
     // Generate tokens
     auth::JwtTokenClaims consumer_claims;
@@ -117,7 +49,7 @@ void test_explainability_and_risk_verification() {
     bank_claims.role = "BANK_EMPLOYEE";
     std::string bank_token = jwt_manager->create_token(bank_claims);
 
-    // 1. Test verify-risk on suspect account
+    // 1. Test verify-risk on suspect account by UPI ID (invest_guru@ybl)
     server::HttpRequest verify_suspect_req;
     verify_suspect_req.method = server::HttpMethod::GET;
     verify_suspect_req.path = "/api/v1/accounts/verify-risk/invest_guru@ybl";
@@ -125,11 +57,80 @@ void test_explainability_and_risk_verification() {
     auto verify_suspect_res = router->handle_request(verify_suspect_req);
     assert(verify_suspect_res.status_code == 200);
     auto suspect_json = json::parse(verify_suspect_res.body);
+    assert(suspect_json["account_id"] == "ACC-9F2E4A10");
+    assert(suspect_json["upi_id"] == "invest_guru@ybl");
+    assert(suspect_json["customer_name"] == "Invest Guru Operations");
+    assert(suspect_json["is_verified_merchant"] == false);
     assert(suspect_json["is_safe_to_pay"] == false);
     assert(suspect_json["risk_level"] == "CRITICAL");
-    assert(suspect_json["account_status"] == "FLAGGED");
+    assert(suspect_json["status"] == "FLAGGED");
+    assert(suspect_json["warning_reasons"].is_array());
+    assert(suspect_json["complaints_count"] == 0);
 
-    // 2. Test verify-risk on clean account
+    // 2. Test verify-risk on suspect account by Account ID (ACC-9F2E4A10)
+    server::HttpRequest verify_acc_id_req;
+    verify_acc_id_req.method = server::HttpMethod::GET;
+    verify_acc_id_req.path = "/api/v1/accounts/verify-risk/ACC-9F2E4A10";
+    verify_acc_id_req.headers["Authorization"] = "Bearer " + consumer_token;
+    auto verify_acc_id_res = router->handle_request(verify_acc_id_req);
+    assert(verify_acc_id_res.status_code == 200);
+    auto acc_id_json = json::parse(verify_acc_id_res.body);
+    assert(acc_id_json["account_id"] == "ACC-9F2E4A10");
+    assert(acc_id_json["upi_id"] == "invest_guru@ybl");
+    assert(acc_id_json["status"] == "FLAGGED");
+
+    // 3. Test verify-risk on benchmark Mule Aggregator (ACC-10096)
+    models::Account mule_acc;
+    mule_acc.account_id = "ACC-10096";
+    mule_acc.upi_id = "rajesh.mule@oksbi";
+    mule_acc.holder_name = "Rajesh Kumar";
+    mule_acc.is_verified_merchant = false;
+    mule_acc.balance = 12000.0;
+    mule_acc.risk_score = 95.0;
+    mule_acc.status = models::AccountStatus::FLAGGED;
+    db->create_account(mule_acc);
+
+    // Link ground truth archetype
+    // Simulate 2 complaints
+    models::FraudComplaint cmp1;
+    cmp1.complaint_id = "CMP-MULE-1";
+    cmp1.complainant_account_id = "ACC-7A1B8C9D";
+    cmp1.suspect_account_id = "ACC-10096";
+    cmp1.transaction_id = "TXN-SCEN-A-001";
+    cmp1.amount = 15000.0;
+    cmp1.scam_category = "TASK_JOB_SCAM";
+    cmp1.status = "SUBMITTED";
+    db->create_complaint(cmp1);
+
+    models::FraudComplaint cmp2;
+    cmp2.complaint_id = "CMP-MULE-2";
+    cmp2.complainant_account_id = "ACC-OTHER-99";
+    cmp2.suspect_account_id = "ACC-10096";
+    cmp2.transaction_id = "TXN-SCEN-A-002";
+    cmp2.amount = 15000.0;
+    cmp2.scam_category = "INVESTMENT_FRAUD";
+    cmp2.status = "SUBMITTED";
+    db->create_complaint(cmp2);
+
+    server::HttpRequest verify_mule_req;
+    verify_mule_req.method = server::HttpMethod::GET;
+    verify_mule_req.path = "/api/v1/accounts/verify-risk/ACC-10096";
+    verify_mule_req.headers["Authorization"] = "Bearer " + consumer_token;
+    auto verify_mule_res = router->handle_request(verify_mule_req);
+    assert(verify_mule_res.status_code == 200);
+    auto mule_json = json::parse(verify_mule_res.body);
+
+    assert(mule_json["account_id"] == "ACC-10096");
+    assert(mule_json["upi_id"] == "rajesh.mule@oksbi");
+    assert(mule_json["customer_name"] == "Rajesh Kumar");
+    assert(mule_json["is_verified_merchant"] == false);
+    assert(mule_json["risk_score"] == 95.0);
+    assert(mule_json["risk_level"] == "CRITICAL");
+    assert(mule_json["status"] == "FLAGGED");
+    assert(mule_json["warning_reasons"].is_array());
+    assert(mule_json["complaints_count"] == 2);
+
+    // 4. Test verify-risk on clean account (siddharth@okaxis)
     server::HttpRequest verify_clean_req;
     verify_clean_req.method = server::HttpMethod::GET;
     verify_clean_req.path = "/api/v1/accounts/verify-risk/siddharth@okaxis";
@@ -139,8 +140,9 @@ void test_explainability_and_risk_verification() {
     auto clean_json = json::parse(verify_clean_res.body);
     assert(clean_json["is_safe_to_pay"] == true);
     assert(clean_json["risk_level"] == "LOW");
+    assert(clean_json["status"] == "ACTIVE");
 
-    // 3. Test verify-risk on non-existent account -> 404
+    // 5. Test verify-risk on non-existent account -> 404
     server::HttpRequest verify_404_req;
     verify_404_req.method = server::HttpMethod::GET;
     verify_404_req.path = "/api/v1/accounts/verify-risk/unknown_upi@bank";
@@ -148,7 +150,36 @@ void test_explainability_and_risk_verification() {
     auto verify_404_res = router->handle_request(verify_404_req);
     assert(verify_404_res.status_code == 404);
 
-    // 4. Test flag-details for transaction TXN-88F19280AA (owned by consumer)
+    // 6. Test PATCH /api/v1/accounts/:account_id/status:
+    // Consumer attempt -> 403 Forbidden
+    server::HttpRequest patch_consumer_req;
+    patch_consumer_req.method = server::HttpMethod::PATCH;
+    patch_consumer_req.path = "/api/v1/accounts/ACC-10096/status";
+    patch_consumer_req.headers["Authorization"] = "Bearer " + consumer_token;
+    patch_consumer_req.body = "{\"status\":\"FROZEN\"}";
+    auto patch_consumer_res = router->handle_request(patch_consumer_req);
+    assert(patch_consumer_res.status_code == 403);
+
+    // Bank Employee freeze -> 200 OK
+    server::HttpRequest patch_bank_req;
+    patch_bank_req.method = server::HttpMethod::PATCH;
+    patch_bank_req.path = "/api/v1/accounts/ACC-10096/status";
+    patch_bank_req.headers["Authorization"] = "Bearer " + bank_token;
+    patch_bank_req.body = "{\"status\":\"FROZEN\"}";
+    auto patch_bank_res = router->handle_request(patch_bank_req);
+    assert(patch_bank_res.status_code == 200);
+    auto patch_json = json::parse(patch_bank_res.body);
+    assert(patch_json["status"] == "FROZEN");
+
+    // Verify status reflected in verify-risk
+    auto verify_frozen_res = router->handle_request(verify_mule_req);
+    assert(verify_frozen_res.status_code == 200);
+    auto frozen_json = json::parse(verify_frozen_res.body);
+    assert(frozen_json["status"] == "FROZEN");
+    assert(frozen_json["risk_level"] == "CRITICAL");
+    assert(frozen_json["is_safe_to_pay"] == false);
+
+    // 7. Test flag-details for transaction TXN-88F19280AA (owned by consumer)
     server::HttpRequest flag_details_req;
     flag_details_req.method = server::HttpMethod::GET;
     flag_details_req.path = "/api/v1/transactions/TXN-88F19280AA/flag-details";
@@ -163,7 +194,7 @@ void test_explainability_and_risk_verification() {
     assert(flag_json["explanation_title"] == "High Velocity Mule Pass-Through Detected");
     assert(flag_json["warning_reasons"].size() == 3);
 
-    // 5. Test flag-details by unauthorized other consumer -> 403 Forbidden
+    // 8. Test flag-details by unauthorized other consumer -> 403 Forbidden
     server::HttpRequest unauth_flag_req;
     unauth_flag_req.method = server::HttpMethod::GET;
     unauth_flag_req.path = "/api/v1/transactions/TXN-88F19280AA/flag-details";
@@ -171,7 +202,7 @@ void test_explainability_and_risk_verification() {
     auto unauth_flag_res = router->handle_request(unauth_flag_req);
     assert(unauth_flag_res.status_code == 403);
 
-    // 6. Test flag-details by Bank Employee -> 200 OK
+    // 9. Test flag-details by Bank Employee -> 200 OK
     server::HttpRequest bank_flag_req;
     bank_flag_req.method = server::HttpMethod::GET;
     bank_flag_req.path = "/api/v1/transactions/TXN-88F19280AA/flag-details";

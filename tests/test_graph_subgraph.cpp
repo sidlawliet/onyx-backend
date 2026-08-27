@@ -5,6 +5,7 @@
 #include "engine/graph_engine.hpp"
 #include "auth/jwt_manager.hpp"
 #include "auth/rbac_middleware.hpp"
+#include "controllers/account_controller.hpp"
 #include "server/router.hpp"
 #include "utils/json.hpp"
 
@@ -27,17 +28,34 @@ void test_graph_engine_core() {
     assert(sub["elements"]["nodes"].size() >= 2);
     assert(sub["elements"]["edges"].size() >= 1);
 
-    // Verify root flag
+    // Verify root flag and Cytoscape.js formatting contract
     bool found_root = false;
     for (const auto& n : sub["elements"]["nodes"]) {
-        if (n["data"]["id"] == "ACC-7A1B8C9D") {
-            assert(n["data"]["is_root"] == true);
+        const auto& data = n["data"];
+        assert(data.contains("id"));
+        assert(data.contains("label"));
+        assert(data.contains("type"));
+        assert(data.contains("risk_score"));
+        assert(data.contains("status"));
+
+        if (data["id"] == "ACC-7A1B8C9D") {
+            assert(data["is_root"] == true);
             found_root = true;
         } else {
-            assert(n["data"]["is_root"] == false);
+            assert(data["is_root"] == false);
         }
     }
     assert(found_root);
+
+    // Verify edge formatting
+    for (const auto& e : sub["elements"]["edges"]) {
+        const auto& data = e["data"];
+        assert(data.contains("id"));
+        assert(data.contains("source"));
+        assert(data.contains("target"));
+        assert(data.contains("amount"));
+        assert(data.contains("timestamp"));
+    }
 
     // 2. Cyclic Graph Test: A -> B -> C -> A
     models::Account accA; accA.account_id = "CYC-A"; accA.upi_id = "a@upi"; accA.holder_name = "Node A"; accA.balance = 1000;
@@ -47,9 +65,9 @@ void test_graph_engine_core() {
     db->create_account(accB);
     db->create_account(accC);
 
-    models::Transaction txAB; txAB.transaction_id = "TX-AB"; txAB.sender_account_id = "CYC-A"; txAB.receiver_account_id = "CYC-B"; txAB.amount = 100; txAB.status = models::TransactionStatus::COMPLETED;
-    models::Transaction txBC; txBC.transaction_id = "TX-BC"; txBC.sender_account_id = "CYC-B"; txBC.receiver_account_id = "CYC-C"; txBC.amount = 100; txBC.status = models::TransactionStatus::COMPLETED;
-    models::Transaction txCA; txCA.transaction_id = "TX-CA"; txCA.sender_account_id = "CYC-C"; txCA.receiver_account_id = "CYC-A"; txCA.amount = 100; txCA.status = models::TransactionStatus::COMPLETED;
+    models::Transaction txAB; txAB.transaction_id = "TX-AB"; txAB.sender_account_id = "CYC-A"; txAB.receiver_account_id = "CYC-B"; txAB.amount = 100; txAB.status = models::TransactionStatus::COMPLETED; txAB.timestamp = "2026-08-25T10:00:00Z";
+    models::Transaction txBC; txBC.transaction_id = "TX-BC"; txBC.sender_account_id = "CYC-B"; txBC.receiver_account_id = "CYC-C"; txBC.amount = 100; txBC.status = models::TransactionStatus::COMPLETED; txBC.timestamp = "2026-08-25T10:05:00Z";
+    models::Transaction txCA; txCA.transaction_id = "TX-CA"; txCA.sender_account_id = "CYC-C"; txCA.receiver_account_id = "CYC-A"; txCA.amount = 100; txCA.status = models::TransactionStatus::COMPLETED; txCA.timestamp = "2026-08-25T10:10:00Z";
     db->create_transaction(txAB);
     db->create_transaction(txBC);
     db->create_transaction(txCA);
@@ -58,7 +76,21 @@ void test_graph_engine_core() {
     assert(cyc_sub["node_count"] == 3);
     assert(cyc_sub["edge_count"] == 3);
 
-    // 3. Network Metrics
+    // 3. Frozen Node Enforcement Test
+    db->update_account_status("CYC-C", models::AccountStatus::FROZEN);
+    json frozen_sub = graph_engine->extract_subgraph("CYC-A", 2, 50);
+    bool found_frozen = false;
+    for (const auto& n : frozen_sub["elements"]["nodes"]) {
+        if (n["data"]["id"] == "CYC-C") {
+            assert(n["data"]["status"] == "FROZEN");
+            assert(n["data"]["is_frozen"] == true);
+            assert(n["data"]["risk_level"] == "CRITICAL");
+            found_frozen = true;
+        }
+    }
+    assert(found_frozen);
+
+    // 4. Network Metrics
     json metrics = graph_engine->compute_network_metrics();
     assert(metrics.contains("total_nodes"));
     assert(metrics["total_nodes"] >= 6);
@@ -79,7 +111,11 @@ void test_graph_routes_and_rbac() {
     auto rbac_middleware = std::make_shared<auth::RbacMiddleware>(jwt_manager);
     auto router = std::make_shared<server::Router>(rbac_middleware);
 
-    // Register Subgraph Route
+    // Register AccountController (handles PATCH /api/v1/accounts/:account_id/status)
+    auto account_controller = std::make_shared<controllers::AccountController>(db);
+    account_controller->register_routes(router);
+
+    // Register Subgraph Route (supports both ?hops=2 and ?depth=2)
     router->get("/api/v1/graph/subgraph/:account_id", auth::RoleRequirement::ANY_AUTHENTICATED, [db, graph_engine](const server::HttpRequest& req, const auth::AuthContext& auth_ctx) {
         std::string account_id = req.path_params.at("account_id");
         if (auth_ctx.is_consumer()) {
@@ -87,24 +123,20 @@ void test_graph_routes_and_rbac() {
                 return server::HttpResponse::error(403, "Forbidden", "Access denied: Consumers can only explore their own account subgraph");
             }
         }
-        json result = graph_engine->extract_subgraph(account_id, 2, 100);
-        return server::HttpResponse::json(200, result);
-    });
 
-    // Register Node Action Route
-    router->post("/api/v1/graph/nodes/:account_id/action", auth::RoleRequirement::BANK_EMPLOYEE_ONLY, [db](const server::HttpRequest& req, const auth::AuthContext&) {
-        std::string account_id = req.path_params.at("account_id");
-        json body = json::parse(req.body);
-        std::string action = body.value("action", "");
-        models::AccountStatus new_status = models::AccountStatus::ACTIVE;
-        if (action == "FREEZE") new_status = models::AccountStatus::FROZEN;
-        else if (action == "FLAG") new_status = models::AccountStatus::FLAGGED;
-        else if (action == "UNFREEZE") new_status = models::AccountStatus::ACTIVE;
-        db->update_account_status(account_id, new_status);
-        return server::HttpResponse::json(200, {
-            {"account_id", account_id},
-            {"status", models::account_status_to_string(new_status)}
-        });
+        int depth = 2;
+        auto it_hops = req.query_params.find("hops");
+        if (it_hops != req.query_params.end() && !it_hops->second.empty()) {
+            try { depth = std::stoi(it_hops->second); } catch(...) { depth = 2; }
+        } else {
+            auto it_depth = req.query_params.find("depth");
+            if (it_depth != req.query_params.end() && !it_depth->second.empty()) {
+                try { depth = std::stoi(it_depth->second); } catch(...) { depth = 2; }
+            }
+        }
+
+        json result = graph_engine->extract_subgraph(account_id, depth, 100);
+        return server::HttpResponse::json(200, result);
     });
 
     // Tokens
@@ -121,10 +153,10 @@ void test_graph_routes_and_rbac() {
     bank_claims.role = "BANK_EMPLOYEE";
     std::string bank_token = jwt_manager->create_token(bank_claims);
 
-    // 1. Consumer extracts own subgraph -> 200 OK
+    // 1. Consumer extracts own subgraph with ?hops=2 -> 200 OK
     server::HttpRequest own_sub_req;
     own_sub_req.method = server::HttpMethod::GET;
-    own_sub_req.path = "/api/v1/graph/subgraph/ACC-7A1B8C9D";
+    own_sub_req.path = "/api/v1/graph/subgraph/ACC-7A1B8C9D?hops=2";
     own_sub_req.headers["Authorization"] = "Bearer " + consumer_token;
     auto own_sub_res = router->handle_request(own_sub_req);
     assert(own_sub_res.status_code == 200);
@@ -137,29 +169,29 @@ void test_graph_routes_and_rbac() {
     auto foreign_sub_res = router->handle_request(foreign_sub_req);
     assert(foreign_sub_res.status_code == 403);
 
-    // 3. Bank Employee extracts foreign subgraph -> 200 OK
+    // 3. Bank Employee extracts foreign subgraph with ?hops=2 -> 200 OK
     server::HttpRequest bank_sub_req;
     bank_sub_req.method = server::HttpMethod::GET;
-    bank_sub_req.path = "/api/v1/graph/subgraph/ACC-9F2E4A10";
+    bank_sub_req.path = "/api/v1/graph/subgraph/ACC-9F2E4A10?hops=2";
     bank_sub_req.headers["Authorization"] = "Bearer " + bank_token;
     auto bank_sub_res = router->handle_request(bank_sub_req);
     assert(bank_sub_res.status_code == 200);
 
-    // 4. Consumer attempts Node Action -> 403 Forbidden
+    // 4. Consumer attempts Account Status PATCH -> 403 Forbidden
     server::HttpRequest consumer_action_req;
-    consumer_action_req.method = server::HttpMethod::POST;
-    consumer_action_req.path = "/api/v1/graph/nodes/ACC-9F2E4A10/action";
+    consumer_action_req.method = server::HttpMethod::PATCH;
+    consumer_action_req.path = "/api/v1/accounts/ACC-9F2E4A10/status";
     consumer_action_req.headers["Authorization"] = "Bearer " + consumer_token;
-    consumer_action_req.body = "{\"action\":\"FREEZE\"}";
+    consumer_action_req.body = "{\"status\":\"FROZEN\"}";
     auto consumer_action_res = router->handle_request(consumer_action_req);
     assert(consumer_action_res.status_code == 403);
 
-    // 5. Bank Employee executes Node Action (FREEZE) -> 200 OK
+    // 5. Bank Employee executes Account Status PATCH (status = FROZEN) -> 200 OK
     server::HttpRequest bank_action_req;
-    bank_action_req.method = server::HttpMethod::POST;
-    bank_action_req.path = "/api/v1/graph/nodes/ACC-9F2E4A10/action";
+    bank_action_req.method = server::HttpMethod::PATCH;
+    bank_action_req.path = "/api/v1/accounts/ACC-9F2E4A10/status";
     bank_action_req.headers["Authorization"] = "Bearer " + bank_token;
-    bank_action_req.body = "{\"action\":\"FREEZE\"}";
+    bank_action_req.body = "{\"status\":\"FROZEN\"}";
     auto bank_action_res = router->handle_request(bank_action_req);
     assert(bank_action_res.status_code == 200);
     auto action_json = json::parse(bank_action_res.body);
@@ -168,6 +200,21 @@ void test_graph_routes_and_rbac() {
     auto frozen_acc = db->find_account_by_id("ACC-9F2E4A10");
     assert(frozen_acc.has_value());
     assert(frozen_acc->status == models::AccountStatus::FROZEN);
+
+    // 6. Bank Employee toggles back to ACTIVE -> 200 OK
+    server::HttpRequest unfreeze_req;
+    unfreeze_req.method = server::HttpMethod::PATCH;
+    unfreeze_req.path = "/api/v1/accounts/ACC-9F2E4A10/status";
+    unfreeze_req.headers["Authorization"] = "Bearer " + bank_token;
+    unfreeze_req.body = "{\"status\":\"ACTIVE\"}";
+    auto unfreeze_res = router->handle_request(unfreeze_req);
+    assert(unfreeze_res.status_code == 200);
+    auto unfreeze_json = json::parse(unfreeze_res.body);
+    assert(unfreeze_json["status"] == "ACTIVE");
+
+    auto active_acc = db->find_account_by_id("ACC-9F2E4A10");
+    assert(active_acc.has_value());
+    assert(active_acc->status == models::AccountStatus::ACTIVE);
 
     std::cout << "  -> test_graph_routes_and_rbac passed!" << std::endl;
 }

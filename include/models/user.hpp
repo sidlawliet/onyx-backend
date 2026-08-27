@@ -29,6 +29,7 @@ struct User {
     std::string user_id;
     std::string username;
     std::string password_hash;
+    std::string name;
     UserRole role;
     std::optional<std::string> associated_account_id;
     std::string created_at;
@@ -37,6 +38,7 @@ struct User {
         nlohmann::json j = {
             {"user_id", user_id},
             {"username", username},
+            {"name", name.empty() ? username : name},
             {"role", user_role_to_string(role)}
         };
         if (associated_account_id.has_value()) {

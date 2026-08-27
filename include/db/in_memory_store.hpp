@@ -15,6 +15,7 @@ public:
     // User Operations
     std::optional<models::User> find_user_by_username(const std::string& username) override;
     std::optional<models::User> find_user_by_id(const std::string& user_id) override;
+    std::optional<models::User> find_user_by_account_id(const std::string& account_id) override;
     bool create_user(const models::User& user) override;
     bool update_user(const models::User& user) override;
     std::vector<models::User> list_users() override;

@@ -94,6 +94,7 @@ void InMemoryStore::seed_default_data() {
     models::User u1;
     u1.user_id = "USR-8819A";
     u1.username = "siddharth_k";
+    u1.name = "Siddharth Kumar";
     u1.password_hash = auth::PasswordHasher::hash_password("secure_password_123", 10000); // 10k rounds for fast seeding
     u1.role = models::UserRole::CONSUMER;
     u1.associated_account_id = "ACC-7A1B8C9D";
@@ -104,6 +105,7 @@ void InMemoryStore::seed_default_data() {
     models::User u2;
     u2.user_id = "USR-BANK-001";
     u2.username = "analyst_raj";
+    u2.name = "Rajesh Sharma";
     u2.password_hash = auth::PasswordHasher::hash_password("bank_employee_pass_456", 10000);
     u2.role = models::UserRole::BANK_EMPLOYEE;
     u2.associated_account_id = std::nullopt;
@@ -114,6 +116,7 @@ void InMemoryStore::seed_default_data() {
     models::User u3;
     u3.user_id = "USR-BANK-002";
     u3.username = "officer_priya";
+    u3.name = "Priya Nair";
     u3.password_hash = auth::PasswordHasher::hash_password("admin_investigator_789", 10000);
     u3.role = models::UserRole::BANK_EMPLOYEE;
     u3.associated_account_id = std::nullopt;
@@ -168,6 +171,16 @@ std::optional<models::User> InMemoryStore::find_user_by_id(const std::string& us
     auto it = users_by_id_.find(user_id);
     if (it != users_by_id_.end()) {
         return it->second;
+    }
+    return std::nullopt;
+}
+
+std::optional<models::User> InMemoryStore::find_user_by_account_id(const std::string& account_id) {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    for (const auto& [_, u] : users_by_id_) {
+        if (u.associated_account_id.has_value() && *u.associated_account_id == account_id) {
+            return u;
+        }
     }
     return std::nullopt;
 }
@@ -546,8 +559,11 @@ bool InMemoryStore::load_from_database_dir(const std::string& db_dir) {
                 acc.holder_name = a.value("customer_name", a.value("holder_name", ""));
                 acc.account_type = a.value("account_type", "SAVINGS");
                 acc.is_verified_merchant = a.value("is_verified_merchant", false);
-                acc.balance = a.value("balance", 0.0);
-                acc.risk_score = a.value("risk_score", 0.0);
+                double raw_risk = a.value("risk_score", 0.0);
+                if (raw_risk > 0.0 && raw_risk <= 1.0) {
+                    raw_risk *= 100.0;
+                }
+                acc.risk_score = raw_risk;
                 acc.status = models::string_to_account_status(a.value("status", "ACTIVE"));
                 acc.created_at = a.value("created_at", "");
 

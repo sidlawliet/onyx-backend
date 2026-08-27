@@ -5,6 +5,7 @@
 #include "auth/password_hasher.hpp"
 #include "auth/jwt_manager.hpp"
 #include "auth/rbac_middleware.hpp"
+#include "controllers/auth_controller.hpp"
 #include "server/router.hpp"
 #include "utils/json.hpp"
 
@@ -20,145 +21,245 @@ void test_auth_login_and_rbac_pipeline() {
     auto rbac_middleware = std::make_shared<auth::RbacMiddleware>(jwt_manager);
     auto router = std::make_shared<server::Router>(rbac_middleware);
 
-    // Register login route
-    router->post("/api/v1/auth/login", auth::RoleRequirement::PUBLIC, [db, jwt_manager](const server::HttpRequest& req, const auth::AuthContext&) {
-        json body;
-        try {
-            body = json::parse(req.body);
-        } catch (...) {
-            return server::HttpResponse::error(400, "Bad Request", "Malformed JSON");
-        }
-
-        std::string username = body.value("username", "");
-        std::string password = body.value("password", "");
-        std::string role_str = body.value("role", "");
-
-        auto role_opt = models::string_to_user_role(role_str);
-        if (!role_opt.has_value()) {
-            return server::HttpResponse::error(400, "Bad Request", "Invalid role");
-        }
-
-        auto user_opt = db->find_user_by_username(username);
-        if (!user_opt.has_value() || user_opt->role != *role_opt) {
-            return server::HttpResponse::error(401, "Unauthorized", "Invalid credentials");
-        }
-
-        if (!auth::PasswordHasher::verify_password(password, user_opt->password_hash)) {
-            return server::HttpResponse::error(401, "Unauthorized", "Invalid credentials");
-        }
-
-        auth::JwtTokenClaims claims;
-        claims.user_id = user_opt->user_id;
-        claims.username = user_opt->username;
-        claims.role = models::user_role_to_string(user_opt->role);
-        claims.associated_account_id = user_opt->associated_account_id;
-
-        std::string token = jwt_manager->create_token(claims);
-
-        json response = {
-            {"access_token", token},
-            {"token_type", "Bearer"},
-            {"expires_in", 86400},
-            {"user", user_opt->to_json_public()}
-        };
-        return server::HttpResponse::json(200, response);
-    });
-
-    // Register /api/v1/auth/me (ANY_AUTHENTICATED)
-    router->get("/api/v1/auth/me", auth::RoleRequirement::ANY_AUTHENTICATED, [db](const server::HttpRequest&, const auth::AuthContext& ctx) {
-        auto user = db->find_user_by_id(ctx.user_id);
-        return server::HttpResponse::json(200, user->to_json_public());
-    });
-
-    // Register /api/v1/consumer/my-account (CONSUMER_ONLY)
-    router->get("/api/v1/consumer/my-account", auth::RoleRequirement::CONSUMER_ONLY, [db](const server::HttpRequest&, const auth::AuthContext& ctx) {
-        auto acc = db->find_account_by_id(*ctx.associated_account_id);
-        return server::HttpResponse::json(200, acc->to_json());
-    });
+    // Register AuthController routes (production controller)
+    auto auth_controller = std::make_shared<controllers::AuthController>(db, jwt_manager);
+    auth_controller->register_routes(router);
 
     // Register /api/v1/admin/audit-summary (BANK_EMPLOYEE_ONLY)
     router->get("/api/v1/admin/audit-summary", auth::RoleRequirement::BANK_EMPLOYEE_ONLY, [](const server::HttpRequest&, const auth::AuthContext& ctx) {
         return server::HttpResponse::json(200, {{"status", "SECURE_AUDIT_LOG_ACCESSED"}, {"viewer", ctx.username}});
     });
 
-    // 1. Test Successful Consumer Login
-    server::HttpRequest login_req;
-    login_req.method = server::HttpMethod::POST;
-    login_req.path = "/api/v1/auth/login";
-    login_req.body = "{\"username\":\"siddharth_k\",\"password\":\"secure_password_123\",\"role\":\"CONSUMER\"}";
+    // =========================================================================
+    // 1. Consumer Registration: Name, Account Number, Password
+    // =========================================================================
+    server::HttpRequest reg_consumer_req;
+    reg_consumer_req.method = server::HttpMethod::POST;
+    reg_consumer_req.path = "/api/v1/auth/register";
+    reg_consumer_req.body = json({
+        {"name", "Rahul Sharma"},
+        {"account_number", "ACC-449120"},
+        {"password", "RahulPass@2026"}
+    }).dump();
 
-    auto login_res = router->handle_request(login_req);
-    assert(login_res.status_code == 200);
-    auto login_json = json::parse(login_res.body);
-    assert(login_json.contains("access_token"));
-    std::string consumer_token = login_json["access_token"].get<std::string>();
-    assert(login_json["user"]["role"] == "CONSUMER");
-    assert(login_json["user"]["associated_account_id"] == "ACC-7A1B8C9D");
+    auto reg_consumer_res = router->handle_request(reg_consumer_req);
+    assert(reg_consumer_res.status_code == 201);
+    auto reg_consumer_json = json::parse(reg_consumer_res.body);
+    assert(reg_consumer_json.contains("access_token"));
+    assert(reg_consumer_json["user"]["name"] == "Rahul Sharma");
+    assert(reg_consumer_json["user"]["role"] == "CONSUMER");
+    assert(reg_consumer_json["user"]["associated_account_id"] == "ACC-449120");
+    assert(reg_consumer_json["account"]["account_id"] == "ACC-449120");
+    assert(reg_consumer_json["account"]["holder_name"] == "Rahul Sharma");
 
-    // 2. Test Successful Bank Employee Login
-    server::HttpRequest bank_login_req;
-    bank_login_req.method = server::HttpMethod::POST;
-    bank_login_req.path = "/api/v1/auth/login";
-    bank_login_req.body = "{\"username\":\"analyst_raj\",\"password\":\"bank_employee_pass_456\",\"role\":\"BANK_EMPLOYEE\"}";
+    // =========================================================================
+    // 2. Consumer Login: Name, Account Number, Password
+    // =========================================================================
+    server::HttpRequest login_consumer_req;
+    login_consumer_req.method = server::HttpMethod::POST;
+    login_consumer_req.path = "/api/v1/auth/login";
+    login_consumer_req.body = json({
+        {"name", "Rahul Sharma"},
+        {"account_number", "ACC-449120"},
+        {"password", "RahulPass@2026"}
+    }).dump();
 
-    auto bank_login_res = router->handle_request(bank_login_req);
-    assert(bank_login_res.status_code == 200);
-    auto bank_login_json = json::parse(bank_login_res.body);
-    std::string bank_token = bank_login_json["access_token"].get<std::string>();
-    assert(bank_login_json["user"]["role"] == "BANK_EMPLOYEE");
+    auto login_consumer_res = router->handle_request(login_consumer_req);
+    assert(login_consumer_res.status_code == 200);
+    auto login_consumer_json = json::parse(login_consumer_res.body);
+    assert(login_consumer_json.contains("access_token"));
+    std::string rahul_token = login_consumer_json["access_token"].get<std::string>();
+    assert(login_consumer_json["user"]["role"] == "CONSUMER");
+    assert(login_consumer_json["user"]["associated_account_id"] == "ACC-449120");
 
-    // 3. Test Invalid Password
+    // =========================================================================
+    // 3. Consumer Login for Existing Seeded User: Siddharth Kumar (ACC-7A1B8C9D)
+    // =========================================================================
+    server::HttpRequest login_seeded_consumer_req;
+    login_seeded_consumer_req.method = server::HttpMethod::POST;
+    login_seeded_consumer_req.path = "/api/v1/auth/login";
+    login_seeded_consumer_req.body = json({
+        {"name", "Siddharth Kumar"},
+        {"account_number", "ACC-7A1B8C9D"},
+        {"password", "secure_password_123"}
+    }).dump();
+
+    auto login_seeded_consumer_res = router->handle_request(login_seeded_consumer_req);
+    assert(login_seeded_consumer_res.status_code == 200);
+    auto login_seeded_json = json::parse(login_seeded_consumer_res.body);
+    std::string consumer_token = login_seeded_json["access_token"].get<std::string>();
+    assert(login_seeded_json["user"]["associated_account_id"] == "ACC-7A1B8C9D");
+
+    // =========================================================================
+    // 4. Bank Employee Registration: Username & Password
+    // =========================================================================
+    server::HttpRequest reg_bank_req;
+    reg_bank_req.method = server::HttpMethod::POST;
+    reg_bank_req.path = "/api/v1/auth/register";
+    reg_bank_req.body = json({
+        {"username", "investigator_vikram"},
+        {"password", "VikramPass#2026"},
+        {"role", "BANK_EMPLOYEE"}
+    }).dump();
+
+    auto reg_bank_res = router->handle_request(reg_bank_req);
+    assert(reg_bank_res.status_code == 201);
+    auto reg_bank_json = json::parse(reg_bank_res.body);
+    assert(reg_bank_json.contains("access_token"));
+    assert(reg_bank_json["user"]["username"] == "investigator_vikram");
+    assert(reg_bank_json["user"]["role"] == "BANK_EMPLOYEE");
+    assert(reg_bank_json["user"]["associated_account_id"].is_null());
+
+    // =========================================================================
+    // 5. Bank Employee Login: Username & Password (no account number)
+    // =========================================================================
+    server::HttpRequest login_bank_req;
+    login_bank_req.method = server::HttpMethod::POST;
+    login_bank_req.path = "/api/v1/auth/login";
+    login_bank_req.body = json({
+        {"username", "investigator_vikram"},
+        {"password", "VikramPass#2026"}
+    }).dump();
+
+    auto login_bank_res = router->handle_request(login_bank_req);
+    assert(login_bank_res.status_code == 200);
+    auto login_bank_json = json::parse(login_bank_res.body);
+    std::string vikram_token = login_bank_json["access_token"].get<std::string>();
+    assert(login_bank_json["user"]["role"] == "BANK_EMPLOYEE");
+
+    // =========================================================================
+    // 6. Seeded Bank Employee Login: analyst_raj
+    // =========================================================================
+    server::HttpRequest seeded_bank_req;
+    seeded_bank_req.method = server::HttpMethod::POST;
+    seeded_bank_req.path = "/api/v1/auth/login";
+    seeded_bank_req.body = json({
+        {"username", "analyst_raj"},
+        {"password", "bank_employee_pass_456"}
+    }).dump();
+
+    auto seeded_bank_res = router->handle_request(seeded_bank_req);
+    assert(seeded_bank_res.status_code == 200);
+    auto seeded_bank_json = json::parse(seeded_bank_res.body);
+    std::string bank_token = seeded_bank_json["access_token"].get<std::string>();
+    assert(seeded_bank_json["user"]["role"] == "BANK_EMPLOYEE");
+
+    // =========================================================================
+    // 7. Legacy Consumer Login: username + password + role
+    // =========================================================================
+    server::HttpRequest legacy_req;
+    legacy_req.method = server::HttpMethod::POST;
+    legacy_req.path = "/api/v1/auth/login";
+    legacy_req.body = json({
+        {"username", "siddharth_k"},
+        {"password", "secure_password_123"},
+        {"role", "CONSUMER"}
+    }).dump();
+
+    auto legacy_res = router->handle_request(legacy_req);
+    assert(legacy_res.status_code == 200);
+
+    // =========================================================================
+    // 8. Error Validations
+    // =========================================================================
+    // 8a. Consumer registration duplicate account number -> 409 Conflict
+    server::HttpRequest dup_acc_req;
+    dup_acc_req.method = server::HttpMethod::POST;
+    dup_acc_req.path = "/api/v1/auth/register";
+    dup_acc_req.body = json({
+        {"name", "Rahul Sharma 2"},
+        {"account_number", "ACC-449120"},
+        {"password", "AnotherPass123"}
+    }).dump();
+    auto dup_acc_res = router->handle_request(dup_acc_req);
+    assert(dup_acc_res.status_code == 409);
+
+    // 8b. Consumer registration missing name -> 400 Bad Request
+    server::HttpRequest missing_name_req;
+    missing_name_req.method = server::HttpMethod::POST;
+    missing_name_req.path = "/api/v1/auth/register";
+    missing_name_req.body = json({
+        {"account_number", "ACC-999000"},
+        {"password", "Pass123"}
+    }).dump();
+    auto missing_name_res = router->handle_request(missing_name_req);
+    assert(missing_name_res.status_code == 400);
+
+    // 8c. Consumer login with mismatched name -> 401 Unauthorized
+    server::HttpRequest mismatch_name_req;
+    mismatch_name_req.method = server::HttpMethod::POST;
+    mismatch_name_req.path = "/api/v1/auth/login";
+    mismatch_name_req.body = json({
+        {"name", "Wrong Name"},
+        {"account_number", "ACC-449120"},
+        {"password", "RahulPass@2026"}
+    }).dump();
+    auto mismatch_name_res = router->handle_request(mismatch_name_req);
+    assert(mismatch_name_res.status_code == 401);
+
+    // 8d. Incorrect password -> 401 Unauthorized
     server::HttpRequest bad_pass_req;
     bad_pass_req.method = server::HttpMethod::POST;
     bad_pass_req.path = "/api/v1/auth/login";
-    bad_pass_req.body = "{\"username\":\"siddharth_k\",\"password\":\"wrong_pass\",\"role\":\"CONSUMER\"}";
+    bad_pass_req.body = json({
+        {"name", "Rahul Sharma"},
+        {"account_number", "ACC-449120"},
+        {"password", "wrong_password"}
+    }).dump();
     auto bad_pass_res = router->handle_request(bad_pass_req);
     assert(bad_pass_res.status_code == 401);
 
-    // 4. Test Role Mismatch (trying to login as BANK_EMPLOYEE with consumer user)
-    server::HttpRequest mismatch_req;
-    mismatch_req.method = server::HttpMethod::POST;
-    mismatch_req.path = "/api/v1/auth/login";
-    mismatch_req.body = "{\"username\":\"siddharth_k\",\"password\":\"secure_password_123\",\"role\":\"BANK_EMPLOYEE\"}";
-    auto mismatch_res = router->handle_request(mismatch_req);
-    assert(mismatch_res.status_code == 401);
+    // 8e. Bank employee duplicate username -> 409 Conflict
+    server::HttpRequest dup_emp_req;
+    dup_emp_req.method = server::HttpMethod::POST;
+    dup_emp_req.path = "/api/v1/auth/register";
+    dup_emp_req.body = json({
+        {"username", "investigator_vikram"},
+        {"password", "NewPass#2026"},
+        {"role", "BANK_EMPLOYEE"}
+    }).dump();
+    auto dup_emp_res = router->handle_request(dup_emp_req);
+    assert(dup_emp_res.status_code == 409);
 
-    // 5. Test Accessing Protected Route without Token
+    // =========================================================================
+    // 9. RBAC & Route Access Validations
+    // =========================================================================
+    // 9a. Accessing Protected Route without Token -> 401 Unauthorized
     server::HttpRequest unauth_req;
     unauth_req.method = server::HttpMethod::GET;
     unauth_req.path = "/api/v1/auth/me";
     auto unauth_res = router->handle_request(unauth_req);
     assert(unauth_res.status_code == 401);
 
-    // 6. Test Accessing Protected Route with Valid Consumer Token
+    // 9b. Accessing Protected Route with Valid Consumer Token -> 200 OK
     server::HttpRequest auth_req;
     auth_req.method = server::HttpMethod::GET;
     auth_req.path = "/api/v1/auth/me";
-    auth_req.headers["Authorization"] = "Bearer " + consumer_token;
+    auth_req.headers["Authorization"] = "Bearer " + rahul_token;
     auto auth_res = router->handle_request(auth_req);
     assert(auth_res.status_code == 200);
     auto auth_json = json::parse(auth_res.body);
-    assert(auth_json["username"] == "siddharth_k");
+    assert(auth_json["name"] == "Rahul Sharma");
 
-    // 7. Test Consumer accessing Consumer-Only Route
+    // 9c. Consumer accessing Consumer-Only Route (/api/v1/consumer/my-account) -> 200 OK
     server::HttpRequest consumer_route_req;
     consumer_route_req.method = server::HttpMethod::GET;
     consumer_route_req.path = "/api/v1/consumer/my-account";
-    consumer_route_req.headers["Authorization"] = "Bearer " + consumer_token;
+    consumer_route_req.headers["Authorization"] = "Bearer " + rahul_token;
     auto consumer_route_res = router->handle_request(consumer_route_req);
     assert(consumer_route_res.status_code == 200);
     auto acc_json = json::parse(consumer_route_res.body);
-    assert(acc_json["account_id"] == "ACC-7A1B8C9D");
+    assert(acc_json["account_id"] == "ACC-449120");
 
-    // 8. Test Bank Employee accessing Consumer-Only Route -> 403 Forbidden
+    // 9d. Bank Employee accessing Consumer-Only Route -> 403 Forbidden
     server::HttpRequest bank_on_consumer_req;
     bank_on_consumer_req.method = server::HttpMethod::GET;
     bank_on_consumer_req.path = "/api/v1/consumer/my-account";
-    bank_on_consumer_req.headers["Authorization"] = "Bearer " + bank_token;
+    bank_on_consumer_req.headers["Authorization"] = "Bearer " + vikram_token;
     auto bank_on_consumer_res = router->handle_request(bank_on_consumer_req);
     assert(bank_on_consumer_res.status_code == 403);
 
-    // 9. Test Bank Employee accessing Bank-Only Route -> 200 OK
+    // 9e. Bank Employee accessing Bank-Only Route (/api/v1/admin/audit-summary) -> 200 OK
     server::HttpRequest bank_route_req;
     bank_route_req.method = server::HttpMethod::GET;
     bank_route_req.path = "/api/v1/admin/audit-summary";
@@ -166,15 +267,15 @@ void test_auth_login_and_rbac_pipeline() {
     auto bank_route_res = router->handle_request(bank_route_req);
     assert(bank_route_res.status_code == 200);
 
-    // 10. Test Consumer accessing Bank-Only Route -> 403 Forbidden
+    // 9f. Consumer accessing Bank-Only Route -> 403 Forbidden
     server::HttpRequest consumer_on_bank_req;
     consumer_on_bank_req.method = server::HttpMethod::GET;
     consumer_on_bank_req.path = "/api/v1/admin/audit-summary";
-    consumer_on_bank_req.headers["Authorization"] = "Bearer " + consumer_token;
+    consumer_on_bank_req.headers["Authorization"] = "Bearer " + rahul_token;
     auto consumer_on_bank_res = router->handle_request(consumer_on_bank_req);
     assert(consumer_on_bank_res.status_code == 403);
 
-    std::cout << "  -> test_auth_login_and_rbac_pipeline passed!" << std::endl;
+    std::cout << "  -> test_auth_login_and_rbac_pipeline passed successfully!" << std::endl;
 }
 
 int main() {

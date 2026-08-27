@@ -55,15 +55,30 @@ nlohmann::json GraphEngine::extract_subgraph(const std::string& root_account_id,
                 risk_level = "MEDIUM";
             }
 
+            std::string node_type = acc.is_verified_merchant ? "MERCHANT" : acc.account_type;
+            auto gt_opt = db_->find_ground_truth_account(acc.account_id);
+            if (gt_opt.has_value() && !gt_opt->archetype.empty()) {
+                node_type = gt_opt->archetype;
+            }
+
+            double score = acc.risk_score;
+            if (score > 0.0 && score <= 1.0) {
+                score *= 100.0;
+            }
+            score = std::min(100.0, std::max(0.0, score));
+
             nodes_json.push_back({
                 {"data", {
                     {"id", acc.account_id},
                     {"label", acc.upi_id},
+                    {"type", node_type},
+                    {"account_type", acc.account_type},
                     {"holder_name", acc.holder_name},
                     {"status", models::account_status_to_string(acc.status)},
-                    {"risk_score", acc.risk_score},
+                    {"risk_score", score},
                     {"risk_level", risk_level},
                     {"is_root", (acc.account_id == root_id)},
+                    {"is_frozen", (acc.status == models::AccountStatus::FROZEN)},
                     {"complaint_count", complaints}
                 }}
             });

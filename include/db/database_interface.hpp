@@ -27,6 +27,7 @@ public:
     // User Operations
     virtual std::optional<models::User> find_user_by_username(const std::string& username) = 0;
     virtual std::optional<models::User> find_user_by_id(const std::string& user_id) = 0;
+    virtual std::optional<models::User> find_user_by_account_id(const std::string& account_id) = 0;
     virtual bool create_user(const models::User& user) = 0;
     virtual bool update_user(const models::User& user) = 0;
     virtual std::vector<models::User> list_users() = 0;
