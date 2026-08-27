@@ -255,6 +255,13 @@ int main() {
 
     // 4. Start HTTP Server
     int port = 8080;
+    if (const char* env_port = std::getenv("PORT")) {
+        try {
+            port = std::stoi(env_port);
+        } catch (...) {
+            port = 8080;
+        }
+    }
     auto server = std::make_unique<server::HttpServer>("0.0.0.0", port, router);
     if (!server->start()) {
         utils::Logger::error("Failed to start HTTP server.");
