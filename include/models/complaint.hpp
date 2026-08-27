@@ -13,6 +13,7 @@ struct FraudComplaint {
     double amount = 0.0;
     std::string scam_category;
     std::string description;
+    double risk_score = 95.0;
     std::string status = "SUBMITTED"; // "SUBMITTED", "UNDER_INVESTIGATION", "RESOLVED", "REJECTED"
     std::string created_at;
 
@@ -25,6 +26,7 @@ struct FraudComplaint {
             {"amount", amount},
             {"scam_category", scam_category},
             {"description", description},
+            {"risk_score", risk_score},
             {"status", status},
             {"created_at", created_at}
         };

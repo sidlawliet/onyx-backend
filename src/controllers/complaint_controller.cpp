@@ -58,20 +58,41 @@ server::HttpResponse ComplaintController::file_complaint(const server::HttpReque
     std::string suspect_upi = body["suspect_upi_id"].get<std::string>();
     std::string scam_category = body["scam_category"].get<std::string>();
     std::string description = body.value("description", "");
+    double risk_score = body.value("risk_score", 95.0);
+
+    std::string timestamp;
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+    char time_buf[32];
+    std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&now_c));
+    timestamp = std::string(time_buf);
 
     // Resolve suspect Account (accepts UPI ID or Account ID)
     auto suspect_acc_opt = db_->find_account_by_upi(suspect_upi);
     if (!suspect_acc_opt.has_value()) {
         suspect_acc_opt = db_->find_account_by_id(suspect_upi);
     }
+    bool is_external_unregistered = false;
     if (!suspect_acc_opt.has_value()) {
-        return server::HttpResponse::error(404, "Not Found", "Suspect UPI ID not found in directory: " + suspect_upi);
+        // Auto-provision unverified/external suspect node so complaints against unregistered handles succeed
+        models::Account ext_acc;
+        ext_acc.account_id = (suspect_upi.find('@') == std::string::npos) ? suspect_upi : "EXT-ACC-" + crypto::get_random_hex(4);
+        ext_acc.upi_id = suspect_upi;
+        ext_acc.holder_name = "Unregistered Beneficiary (" + suspect_upi + ")";
+        ext_acc.account_type = "EXTERNAL_UNVERIFIED";
+        ext_acc.is_verified_merchant = false;
+        ext_acc.balance = 0.0;
+        ext_acc.risk_score = risk_score;
+        ext_acc.status = models::AccountStatus::FLAGGED;
+        ext_acc.created_at = timestamp;
+        db_->create_account(ext_acc);
+        suspect_acc_opt = ext_acc;
+        is_external_unregistered = true;
     }
 
     // Process Transaction Reference: Support both internal and external transactions
     std::string tx_id;
     double amount = body.value("amount", 0.0);
-    std::string timestamp;
 
     if (body.contains("transaction_id") && body["transaction_id"].is_string() && !body["transaction_id"].get<std::string>().empty()) {
         tx_id = body["transaction_id"].get<std::string>();
@@ -97,14 +118,6 @@ server::HttpResponse ComplaintController::file_complaint(const server::HttpReque
         tx_id = "EXT-TXN-" + rand_ref;
     }
 
-    if (timestamp.empty()) {
-        auto now = std::chrono::system_clock::now();
-        std::time_t now_c = std::chrono::system_clock::to_time_t(now);
-        char buf[32];
-        std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&now_c));
-        timestamp = std::string(buf);
-    }
-
     // Create Complaint Record
     std::string cmp_rand = crypto::get_random_hex(2);
     std::transform(cmp_rand.begin(), cmp_rand.end(), cmp_rand.begin(), ::toupper);
@@ -118,26 +131,27 @@ server::HttpResponse ComplaintController::file_complaint(const server::HttpReque
     complaint.amount = amount;
     complaint.scam_category = scam_category;
     complaint.description = description;
+    complaint.risk_score = risk_score;
     complaint.status = "SUBMITTED";
     complaint.created_at = timestamp;
 
     db_->create_complaint(complaint);
 
     // Auto-Taint & Dynamic Flagging:
-    // Adding a complaint instantly increments the suspect's risk_score (+25.0).
-    // If active complaints >= 2 or risk_score >= 70.0, transition to FLAGGED.
-    size_t active_complaints = db_->count_complaints_for_suspect(suspect_acc_opt->account_id);
-    models::AccountStatus new_status = suspect_acc_opt->status;
-    if (new_status != models::AccountStatus::FROZEN) {
-        if (active_complaints >= 2 || (suspect_acc_opt->risk_score + 25.0) >= 70.0) {
-            new_status = models::AccountStatus::FLAGGED;
+    // Adding a complaint updates suspect risk. For external unverified accounts, keep at evaluated risk (95%).
+    if (!is_external_unregistered) {
+        size_t active_complaints = db_->count_complaints_for_suspect(suspect_acc_opt->account_id);
+        models::AccountStatus new_status = suspect_acc_opt->status;
+        if (new_status != models::AccountStatus::FROZEN) {
+            if (active_complaints >= 2 || (suspect_acc_opt->risk_score + 25.0) >= 70.0) {
+                new_status = models::AccountStatus::FLAGGED;
+            }
         }
+        db_->apply_taint_update(suspect_acc_opt->account_id, 25.0, new_status);
+        utils::Logger::warn("Auto-taint feedback applied: Suspect " + suspect_acc_opt->account_id +
+                            " risk score incremented (+25.0), active complaints = " + std::to_string(active_complaints) +
+                            ", status = " + models::account_status_to_string(new_status));
     }
-
-    db_->apply_taint_update(suspect_acc_opt->account_id, 25.0, new_status);
-    utils::Logger::warn("Auto-taint feedback applied: Suspect " + suspect_acc_opt->account_id +
-                        " risk score incremented (+25.0), active complaints = " + std::to_string(active_complaints) +
-                        ", status = " + models::account_status_to_string(new_status));
 
     json response_json = {
         {"complaint_id", complaint.complaint_id},
@@ -176,16 +190,17 @@ server::HttpResponse ComplaintController::list_complaints(const server::HttpRequ
         if (!suspect_opt.has_value()) {
             suspect_opt = db_->find_account_by_upi(c.suspect_account_id);
         }
+        double effective_risk = (c.risk_score > 0.0) ? c.risk_score : (suspect_opt ? suspect_opt->risk_score : 95.0);
         if (suspect_opt.has_value()) {
             item["holder_name"] = suspect_opt->holder_name;
             item["target_identifier"] = !suspect_opt->upi_id.empty() ? suspect_opt->upi_id : suspect_opt->account_id;
             item["target_type"] = suspect_opt->upi_id.empty() ? "account" : "upi";
-            item["risk_score"] = suspect_opt->risk_score;
+            item["risk_score"] = effective_risk;
         } else {
             item["holder_name"] = "Suspect Account (" + c.suspect_account_id + ")";
             item["target_identifier"] = c.suspect_account_id;
             item["target_type"] = "account";
-            item["risk_score"] = 75.0;
+            item["risk_score"] = effective_risk;
         }
 
         auto complainant_user = db_->find_user_by_account_id(c.complainant_account_id);
@@ -202,6 +217,7 @@ server::HttpResponse ComplaintController::list_complaints(const server::HttpRequ
         item["holderName"] = item["holder_name"];
         item["riskScore"] = item["risk_score"];
         item["filedAt"] = c.created_at;
+        item["details"] = c.description;
 
         complaint_list.push_back(item);
     }
@@ -226,17 +242,18 @@ server::HttpResponse ComplaintController::get_complaint(const server::HttpReques
     if (!suspect_opt.has_value()) {
         suspect_opt = db_->find_account_by_upi(c.suspect_account_id);
     }
+    double effective_risk = (c.risk_score > 0.0) ? c.risk_score : (suspect_opt ? suspect_opt->risk_score : 95.0);
     if (suspect_opt.has_value()) {
         item["holder_name"] = suspect_opt->holder_name;
         item["target_identifier"] = !suspect_opt->upi_id.empty() ? suspect_opt->upi_id : suspect_opt->account_id;
         item["target_type"] = suspect_opt->upi_id.empty() ? "account" : "upi";
-        item["risk_score"] = suspect_opt->risk_score;
+        item["risk_score"] = effective_risk;
         item["suspect_account"] = suspect_opt->to_json();
     } else {
         item["holder_name"] = "Suspect Account (" + c.suspect_account_id + ")";
         item["target_identifier"] = c.suspect_account_id;
         item["target_type"] = "account";
-        item["risk_score"] = 75.0;
+        item["risk_score"] = effective_risk;
     }
 
     auto complainant_user = db_->find_user_by_account_id(c.complainant_account_id);
