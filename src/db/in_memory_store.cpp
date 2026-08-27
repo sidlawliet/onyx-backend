@@ -234,6 +234,22 @@ std::optional<models::Account> InMemoryStore::find_account_by_upi(const std::str
             return a_it->second;
         }
     }
+
+    // Secondary fallback: fuzzy match by UPI prefix/handle (e.g. rajesh.mule matches rajesh.mule.aggregator)
+    std::string prefix = upi_id;
+    size_t at_pos = upi_id.find('@');
+    if (at_pos != std::string::npos) {
+        prefix = upi_id.substr(0, at_pos);
+    }
+    for (const auto& [u_id, acc_id] : account_id_by_upi_) {
+        if (u_id == upi_id || (!prefix.empty() && u_id.find(prefix) != std::string::npos)) {
+            auto a_it = accounts_by_id_.find(acc_id);
+            if (a_it != accounts_by_id_.end()) {
+                return a_it->second;
+            }
+        }
+    }
+
     return std::nullopt;
 }
 
@@ -243,7 +259,9 @@ bool InMemoryStore::create_account(const models::Account& account) {
         return false;
     }
     accounts_by_id_[account.account_id] = account;
-    account_id_by_upi_[account.upi_id] = account.account_id;
+    if (!account.upi_id.empty()) {
+        account_id_by_upi_[account.upi_id] = account.account_id;
+    }
     return true;
 }
 
@@ -253,7 +271,13 @@ bool InMemoryStore::update_account(const models::Account& account) {
     if (it == accounts_by_id_.end()) {
         return false;
     }
+    if (!it->second.upi_id.empty() && it->second.upi_id != account.upi_id) {
+        account_id_by_upi_.erase(it->second.upi_id);
+    }
     it->second = account;
+    if (!account.upi_id.empty()) {
+        account_id_by_upi_[account.upi_id] = account.account_id;
+    }
     return true;
 }
 

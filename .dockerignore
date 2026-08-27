@@ -1,0 +1,10 @@
+build/
+bin/
+frontend/
+.git/
+.vscode/
+.vs/
+*.user
+*.suo
+*.log
+*.tmp

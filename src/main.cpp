@@ -51,6 +51,179 @@ int main() {
         utils::Logger::warn("Could not load database directory from '" + db_dir + "'; running with in-memory default fixtures.");
     }
 
+    // Seed interactive demo portal accounts, credentials & dispute queue
+    {
+        std::string timestamp = "2026-08-25T14:00:00Z";
+
+        // Rajesh Kumar (Mule Aggregator)
+        auto acc_mule = db->find_account_by_id("ACC-10096");
+        if (!acc_mule.has_value()) {
+            models::Account a;
+            a.account_id = "ACC-10096";
+            a.upi_id = "rajesh.mule@oksbi";
+            a.holder_name = "Rajesh Kumar";
+            a.balance = 250000.00;
+            a.risk_score = 94.0;
+            a.status = models::AccountStatus::FLAGGED;
+            a.created_at = timestamp;
+            db->create_account(a);
+        } else {
+            acc_mule->upi_id = "rajesh.mule@oksbi";
+            acc_mule->holder_name = "Rajesh Kumar";
+            acc_mule->risk_score = 94.0;
+            acc_mule->status = models::AccountStatus::FLAGGED;
+            db->update_account(*acc_mule);
+        }
+
+        // Invest Guru
+        auto acc_guru = db->find_account_by_id("ACC-9F2E4A10");
+        if (!acc_guru.has_value()) {
+            models::Account a;
+            a.account_id = "ACC-9F2E4A10";
+            a.upi_id = "invest_guru@ybl";
+            a.holder_name = "Deepak Sharma (Invest Guru)";
+            a.balance = 150000.00;
+            a.risk_score = 88.5;
+            a.status = models::AccountStatus::FLAGGED;
+            a.created_at = timestamp;
+            db->create_account(a);
+        } else {
+            acc_guru->upi_id = "invest_guru@ybl";
+            acc_guru->holder_name = "Deepak Sharma (Invest Guru)";
+            db->update_account(*acc_guru);
+        }
+
+        auto acc_guru_hub = db->find_account_by_id("ACC-99014");
+        if (!acc_guru_hub.has_value()) {
+            models::Account a;
+            a.account_id = "ACC-99014";
+            a.upi_id = "invest_guru_global@ybl";
+            a.holder_name = "Invest Guru Global Hub";
+            a.balance = 450000.00;
+            a.risk_score = 89.0;
+            a.status = models::AccountStatus::FLAGGED;
+            a.created_at = timestamp;
+            db->create_account(a);
+        }
+
+        // Vivek Singh
+        auto acc_vivek = db->find_account_by_id("ACC-44910283");
+        if (!acc_vivek.has_value()) {
+            models::Account a;
+            a.account_id = "ACC-44910283";
+            a.upi_id = "vivek.phish@oksbi";
+            a.holder_name = "Vivek Singh";
+            a.balance = 28500.00;
+            a.risk_score = 76.0;
+            a.status = models::AccountStatus::FLAGGED;
+            a.created_at = timestamp;
+            db->create_account(a);
+        }
+
+        // Verified Merchant: Zomato
+        auto acc_zomato = db->find_account_by_upi("zomato@paytm");
+        if (!acc_zomato.has_value()) {
+            models::Account a;
+            a.account_id = "ACC-ZOMATO-01";
+            a.upi_id = "zomato@paytm";
+            a.holder_name = "Zomato Verified Merchant";
+            a.balance = 5000000.00;
+            a.risk_score = 4.0;
+            a.status = models::AccountStatus::ACTIVE;
+            a.is_verified_merchant = true;
+            a.created_at = timestamp;
+            db->create_account(a);
+        }
+
+        // Demo Bank Officers: OFFICER-901 and OFF-901
+        if (!db->find_user_by_username("OFFICER-901").has_value()) {
+            models::User u;
+            u.user_id = "USR-OFFICER-901";
+            u.username = "OFFICER-901";
+            u.name = "Senior SOC Officer";
+            u.password_hash = auth::PasswordHasher::hash_password("bank_secure_pass", 10000);
+            u.role = models::UserRole::BANK_EMPLOYEE;
+            u.associated_account_id = std::nullopt;
+            u.created_at = timestamp;
+            db->create_user(u);
+        }
+        if (!db->find_user_by_username("OFF-901").has_value()) {
+            models::User u;
+            u.user_id = "USR-OFF-901";
+            u.username = "OFF-901";
+            u.name = "Officer 901";
+            u.password_hash = auth::PasswordHasher::hash_password("officer", 10000);
+            u.role = models::UserRole::BANK_EMPLOYEE;
+            u.associated_account_id = std::nullopt;
+            u.created_at = timestamp;
+            db->create_user(u);
+        }
+
+        // Demo Consumers: siddharth_kumar and siddharth_k
+        if (!db->find_user_by_username("siddharth_kumar").has_value()) {
+            models::User u;
+            u.user_id = "USR-SIDDHARTH-KUMAR";
+            u.username = "siddharth_kumar";
+            u.name = "Siddharth Kumar";
+            u.password_hash = auth::PasswordHasher::hash_password("secure_pass_123", 10000);
+            u.role = models::UserRole::CONSUMER;
+            u.associated_account_id = "ACC-7A1B8C9D";
+            u.created_at = timestamp;
+            db->create_user(u);
+        }
+        if (!db->find_user_by_username("siddharth_k").has_value()) {
+            models::User u;
+            u.user_id = "USR-8819A";
+            u.username = "siddharth_k";
+            u.name = "Siddharth Kumar";
+            u.password_hash = auth::PasswordHasher::hash_password("secure_password_123", 10000);
+            u.role = models::UserRole::CONSUMER;
+            u.associated_account_id = "ACC-7A1B8C9D";
+            u.created_at = timestamp;
+            db->create_user(u);
+        }
+
+        // Seed initial triage complaints if empty
+        auto existing_complaints = db->list_complaints(std::nullopt, 10);
+        if (existing_complaints.empty()) {
+            models::FraudComplaint c1;
+            c1.complaint_id = "CMP-102";
+            c1.complainant_account_id = "ACC-7A1B8C9D";
+            c1.suspect_account_id = "ACC-10096";
+            c1.transaction_id = "TXN-88F101";
+            c1.amount = 45000.00;
+            c1.scam_category = "MULE_SUSPECT";
+            c1.description = "Victim reported coerced urgent funds diversion following fake telecom KYC renewal notice.";
+            c1.status = "UNDER_INVESTIGATION";
+            c1.created_at = "2026-08-27 14:22:10";
+            db->create_complaint(c1);
+
+            models::FraudComplaint c2;
+            c2.complaint_id = "CMP-101";
+            c2.complainant_account_id = "ACC-VIC-A01";
+            c2.suspect_account_id = "ACC-9F2E4A10";
+            c2.transaction_id = "TXN-77A001";
+            c2.amount = 150000.00;
+            c2.scam_category = "INVESTMENT_FRAUD";
+            c2.description = "High-yield daily Telegram task investment fraud payout redirection.";
+            c2.status = "FROZEN";
+            c2.created_at = "2026-08-27 11:05:42";
+            db->create_complaint(c2);
+
+            models::FraudComplaint c3;
+            c3.complaint_id = "CMP-100";
+            c3.complainant_account_id = "ACC-VIC-B01";
+            c3.suspect_account_id = "ACC-44910283";
+            c3.transaction_id = "TXN-66B990";
+            c3.amount = 28500.00;
+            c3.scam_category = "PHISHING";
+            c3.description = "Compromised credential login after phishing SMS with fake electricity bill disconnect threat.";
+            c3.status = "RESOLVED";
+            c3.created_at = "2026-08-26 18:40:15";
+            db->create_complaint(c3);
+        }
+    }
+
     // 2. Initialize JWT Manager & RBAC Middleware
     std::string jwt_secret = "onyx_super_secret_jwt_key_2026_x99!@";
     auto jwt_manager = std::make_shared<auth::JwtManager>(jwt_secret, 86400);

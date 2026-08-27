@@ -24,6 +24,10 @@ public:
     // Triage queue for bank investigators
     server::HttpResponse list_complaints(const server::HttpRequest& req, const auth::AuthContext& auth_ctx) const;
 
+    // Endpoint: GET /api/v1/complaints/:complaint_id (Protected: BANK_EMPLOYEE_ONLY)
+    // Detailed case inspection for bank investigators
+    server::HttpResponse get_complaint(const server::HttpRequest& req, const auth::AuthContext& auth_ctx) const;
+
     // Endpoint: PUT /api/v1/complaints/:complaint_id/status (Protected: BANK_EMPLOYEE_ONLY)
     // Update complaint investigation status
     server::HttpResponse update_complaint_status(const server::HttpRequest& req, const auth::AuthContext& auth_ctx) const;

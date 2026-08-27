@@ -25,6 +25,12 @@ void ComplaintController::register_routes(std::shared_ptr<server::Router> router
             return this->list_complaints(req, auth_ctx);
         });
 
+    // 2b. Single Complaint Detail (Protected: BANK_EMPLOYEE_ONLY)
+    router->get("/api/v1/complaints/:complaint_id", auth::RoleRequirement::BANK_EMPLOYEE_ONLY,
+        [this](const server::HttpRequest& req, const auth::AuthContext& auth_ctx) {
+            return this->get_complaint(req, auth_ctx);
+        });
+
     // 3. Update Status (Protected: BANK_EMPLOYEE_ONLY)
     router->put("/api/v1/complaints/:complaint_id/status", auth::RoleRequirement::BANK_EMPLOYEE_ONLY,
         [this](const server::HttpRequest& req, const auth::AuthContext& auth_ctx) {
@@ -163,13 +169,93 @@ server::HttpResponse ComplaintController::list_complaints(const server::HttpRequ
     auto complaints = db_->list_complaints(status_filter, limit);
     json complaint_list = json::array();
     for (const auto& c : complaints) {
-        complaint_list.push_back(c.to_json());
+        json item = c.to_json();
+
+        // Enrich with suspect info and holder name for frontend UI
+        auto suspect_opt = db_->find_account_by_id(c.suspect_account_id);
+        if (!suspect_opt.has_value()) {
+            suspect_opt = db_->find_account_by_upi(c.suspect_account_id);
+        }
+        if (suspect_opt.has_value()) {
+            item["holder_name"] = suspect_opt->holder_name;
+            item["target_identifier"] = !suspect_opt->upi_id.empty() ? suspect_opt->upi_id : suspect_opt->account_id;
+            item["target_type"] = suspect_opt->upi_id.empty() ? "account" : "upi";
+            item["risk_score"] = suspect_opt->risk_score;
+        } else {
+            item["holder_name"] = "Suspect Account (" + c.suspect_account_id + ")";
+            item["target_identifier"] = c.suspect_account_id;
+            item["target_type"] = "account";
+            item["risk_score"] = 75.0;
+        }
+
+        auto complainant_user = db_->find_user_by_account_id(c.complainant_account_id);
+        if (complainant_user.has_value()) {
+            item["filed_by"] = complainant_user->username;
+        } else {
+            item["filed_by"] = c.complainant_account_id;
+        }
+
+        // Add camelCase alias fields for frontend table convenience
+        item["complaintId"] = c.complaint_id;
+        item["filedBy"] = item["filed_by"];
+        item["targetIdentifier"] = item["target_identifier"];
+        item["holderName"] = item["holder_name"];
+        item["riskScore"] = item["risk_score"];
+        item["filedAt"] = c.created_at;
+
+        complaint_list.push_back(item);
     }
 
     return server::HttpResponse::json(200, {
         {"total", complaint_list.size()},
         {"complaints", complaint_list}
     });
+}
+
+server::HttpResponse ComplaintController::get_complaint(const server::HttpRequest& req, const auth::AuthContext&) const {
+    std::string complaint_id = req.path_params.at("complaint_id");
+    auto c_opt = db_->find_complaint_by_id(complaint_id);
+    if (!c_opt.has_value()) {
+        return server::HttpResponse::error(404, "Not Found", "Complaint not found: " + complaint_id);
+    }
+
+    const auto& c = *c_opt;
+    json item = c.to_json();
+
+    auto suspect_opt = db_->find_account_by_id(c.suspect_account_id);
+    if (!suspect_opt.has_value()) {
+        suspect_opt = db_->find_account_by_upi(c.suspect_account_id);
+    }
+    if (suspect_opt.has_value()) {
+        item["holder_name"] = suspect_opt->holder_name;
+        item["target_identifier"] = !suspect_opt->upi_id.empty() ? suspect_opt->upi_id : suspect_opt->account_id;
+        item["target_type"] = suspect_opt->upi_id.empty() ? "account" : "upi";
+        item["risk_score"] = suspect_opt->risk_score;
+        item["suspect_account"] = suspect_opt->to_json();
+    } else {
+        item["holder_name"] = "Suspect Account (" + c.suspect_account_id + ")";
+        item["target_identifier"] = c.suspect_account_id;
+        item["target_type"] = "account";
+        item["risk_score"] = 75.0;
+    }
+
+    auto complainant_user = db_->find_user_by_account_id(c.complainant_account_id);
+    if (complainant_user.has_value()) {
+        item["filed_by"] = complainant_user->username;
+    } else {
+        item["filed_by"] = c.complainant_account_id;
+    }
+
+    // Add camelCase alias fields for frontend page convenience
+    item["complaintId"] = c.complaint_id;
+    item["filedBy"] = item["filed_by"];
+    item["targetIdentifier"] = item["target_identifier"];
+    item["holderName"] = item["holder_name"];
+    item["riskScore"] = item["risk_score"];
+    item["filedAt"] = c.created_at;
+    item["details"] = c.description;
+
+    return server::HttpResponse::json(200, item);
 }
 
 server::HttpResponse ComplaintController::update_complaint_status(const server::HttpRequest& req, const auth::AuthContext&) const {

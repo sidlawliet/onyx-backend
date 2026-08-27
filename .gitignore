@@ -25,3 +25,6 @@ Desktop.ini
 # Databases runtime files (if any local db instance files shouldn't be committed)
 *.sqlite
 *.db
+
+# Separate Frontend Repository
+frontend/

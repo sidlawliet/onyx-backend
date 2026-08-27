@@ -20,8 +20,8 @@ inline std::string user_role_to_string(UserRole role) {
 }
 
 inline std::optional<UserRole> string_to_user_role(const std::string& str) {
-    if (str == "CONSUMER") return UserRole::CONSUMER;
-    if (str == "BANK_EMPLOYEE") return UserRole::BANK_EMPLOYEE;
+    if (str == "CONSUMER" || str == "consumer" || str == "customer" || str == "CUSTOMER") return UserRole::CONSUMER;
+    if (str == "BANK_EMPLOYEE" || str == "bank_employee" || str == "officer" || str == "OFFICER") return UserRole::BANK_EMPLOYEE;
     return std::nullopt;
 }
 
