@@ -21,7 +21,7 @@ typedef int socklen_t;
 typedef int SOCKET;
 #endif
 
-namespace trustgraph::server {
+namespace onyx::server {
 
 namespace {
 bool init_sockets() {
@@ -88,7 +88,7 @@ void HttpServer::stop() {
         wait_cycles++;
     }
 
-    utils::Logger::info("TrustGraph HTTP Server stopped gracefully.");
+    utils::Logger::info("ONYX HTTP Server stopped gracefully.");
 }
 
 HttpRequest HttpServer::parse_raw_http(const std::string& raw_data) {
@@ -252,7 +252,7 @@ void HttpServer::run_event_loop() {
         return;
     }
 
-    utils::Logger::info("TrustGraph C++ Engine listening on http://" + host_ + ":" + std::to_string(port_));
+    utils::Logger::info("ONYX C++ Engine listening on http://" + host_ + ":" + std::to_string(port_));
 
     while (running_) {
         sockaddr_in client_addr{};
@@ -280,4 +280,4 @@ void HttpServer::run_event_loop() {
     closesocket(server_fd);
 }
 
-} // namespace trustgraph::server
+} // namespace onyx::server

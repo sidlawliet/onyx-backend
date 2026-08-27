@@ -1,7 +1,7 @@
 #include "server/router.hpp"
 #include <sstream>
 
-namespace trustgraph::server {
+namespace onyx::server {
 
 std::vector<std::string> Router::split_path(const std::string& path) {
     std::vector<std::string> segments;
@@ -122,7 +122,7 @@ HttpResponse Router::handle_request(HttpRequest req) const {
         return HttpResponse::error(405, "Method Not Allowed", "Method " + http_method_to_string(req.method) + " is not allowed for " + req.path);
     }
 
-    return HttpResponse::error(404, "Not Found", "Endpoint " + req.path + " does not exist on TrustGraph API");
+    return HttpResponse::error(404, "Not Found", "Endpoint " + req.path + " does not exist on ONYX API");
 }
 
-} // namespace trustgraph::server
+} // namespace onyx::server

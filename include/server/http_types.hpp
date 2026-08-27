@@ -6,7 +6,7 @@
 #include <algorithm>
 #include "utils/json.hpp"
 
-namespace trustgraph::server {
+namespace onyx::server {
 
 enum class HttpMethod {
     GET,
@@ -119,4 +119,4 @@ struct HttpResponse {
     }
 };
 
-} // namespace trustgraph::server
+} // namespace onyx::server

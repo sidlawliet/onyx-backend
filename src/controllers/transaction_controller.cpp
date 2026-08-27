@@ -5,7 +5,7 @@
 
 using json = nlohmann::json;
 
-namespace trustgraph::controllers {
+namespace onyx::controllers {
 
 TransactionController::TransactionController(std::shared_ptr<db::InMemoryStore> db)
     : db_(std::move(db)) {}
@@ -176,7 +176,7 @@ server::HttpResponse TransactionController::execute_transaction(const server::Ht
     }
 
     if (!receiver_acc_opt.has_value()) {
-        return server::HttpResponse::error(404, "Not Found", "Recipient account or UPI ID not found in TrustGraph directory");
+        return server::HttpResponse::error(404, "Not Found", "Recipient account or UPI ID not found in ONYX directory");
     }
 
     auto sender_acc_opt = db_->find_account_by_id(sender_account_id);
@@ -237,4 +237,4 @@ server::HttpResponse TransactionController::execute_transaction(const server::Ht
     return res;
 }
 
-} // namespace trustgraph::controllers
+} // namespace onyx::controllers

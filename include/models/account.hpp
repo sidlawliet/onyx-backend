@@ -3,7 +3,7 @@
 #include <string>
 #include "utils/json.hpp"
 
-namespace trustgraph::models {
+namespace onyx::models {
 
 enum class AccountStatus {
     ACTIVE,
@@ -53,4 +53,4 @@ struct Account {
     }
 };
 
-} // namespace trustgraph::models
+} // namespace onyx::models

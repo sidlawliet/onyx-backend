@@ -4,7 +4,7 @@
 #include <vector>
 #include <cstring>
 
-namespace trustgraph::auth {
+namespace onyx::auth {
 
 std::vector<uint8_t> PasswordHasher::pbkdf2_hmac_sha256(
     const std::string& password,
@@ -97,4 +97,4 @@ bool PasswordHasher::verify_password(const std::string& password, const std::str
     return crypto::constant_time_compare(actual_hash_hex, expected_hash_hex);
 }
 
-} // namespace trustgraph::auth
+} // namespace onyx::auth

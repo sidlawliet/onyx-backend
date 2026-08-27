@@ -5,7 +5,7 @@
 #include <shared_mutex>
 #include <mutex>
 
-namespace trustgraph::db {
+namespace onyx::db {
 
 class InMemoryStore : public IDatabase {
 public:
@@ -84,4 +84,4 @@ private:
     std::vector<models::GroundTruthScenario> gt_scenarios_;
 };
 
-} // namespace trustgraph::db
+} // namespace onyx::db

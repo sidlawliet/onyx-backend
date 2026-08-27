@@ -8,7 +8,7 @@
 #include "models/flag.hpp"
 #include "db/database_interface.hpp"
 
-namespace trustgraph::engine {
+namespace onyx::engine {
 
 struct FraudEvaluationResult {
     double risk_score = 0.0;
@@ -32,4 +32,4 @@ public:
         db::IDatabase& db);
 };
 
-} // namespace trustgraph::engine
+} // namespace onyx::engine

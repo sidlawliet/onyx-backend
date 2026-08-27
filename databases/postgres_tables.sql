@@ -1,5 +1,5 @@
 -- =============================================================================
--- TrustGraph Synthetic Banking Engine: Production DDL & Seed Script
+-- ONYX Synthetic Banking Engine: Production DDL & Seed Script
 -- Schema: v1.2 (Strict Ground-Truth Separation Enforcement)
 -- Public Tables: accounts, transactions
 -- Evaluation Tables: ground_truth_accounts, ground_truth_scenarios

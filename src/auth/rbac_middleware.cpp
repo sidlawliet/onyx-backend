@@ -1,7 +1,7 @@
 #include "auth/rbac_middleware.hpp"
 #include <sstream>
 
-namespace trustgraph::auth {
+namespace onyx::auth {
 
 RbacMiddleware::RbacMiddleware(std::shared_ptr<JwtManager> jwt_manager)
     : jwt_manager_(std::move(jwt_manager)) {}
@@ -82,4 +82,4 @@ RbacMiddleware::authenticate_and_authorize(
     return {ctx, std::nullopt};
 }
 
-} // namespace trustgraph::auth
+} // namespace onyx::auth

@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <cstddef>
 
-namespace trustgraph::crypto {
+namespace onyx::crypto {
 
 // Cryptographically secure random byte generation
 std::vector<uint8_t> get_random_bytes(size_t count);
@@ -37,4 +37,4 @@ std::string to_hex(const uint8_t* data, size_t len);
 std::string to_hex(const std::vector<uint8_t>& data);
 std::vector<uint8_t> from_hex(const std::string& hex);
 
-} // namespace trustgraph::crypto
+} // namespace onyx::crypto

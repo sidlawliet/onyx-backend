@@ -4,7 +4,7 @@
 #include <vector>
 #include "utils/json.hpp"
 
-namespace trustgraph::models {
+namespace onyx::models {
 
 struct TransactionFlag {
     std::string flag_id;
@@ -30,4 +30,4 @@ struct TransactionFlag {
     }
 };
 
-} // namespace trustgraph::models
+} // namespace onyx::models

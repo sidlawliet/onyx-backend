@@ -13,7 +13,7 @@
 #include <fstream>
 #endif
 
-namespace trustgraph::crypto {
+namespace onyx::crypto {
 
 // ---------------------------------------------------------------------------
 // CSPRNG
@@ -384,4 +384,4 @@ std::string base64url_decode(const std::string& input) {
     return base64_decode(b64);
 }
 
-} // namespace trustgraph::crypto
+} // namespace onyx::crypto

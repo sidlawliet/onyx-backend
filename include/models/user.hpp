@@ -4,7 +4,7 @@
 #include <optional>
 #include "utils/json.hpp"
 
-namespace trustgraph::models {
+namespace onyx::models {
 
 enum class UserRole {
     CONSUMER,
@@ -50,4 +50,4 @@ struct User {
     }
 };
 
-} // namespace trustgraph::models
+} // namespace onyx::models

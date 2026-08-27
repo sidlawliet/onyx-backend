@@ -11,7 +11,7 @@
 #include "models/complaint.hpp"
 #include "models/ground_truth.hpp"
 
-namespace trustgraph::db {
+namespace onyx::db {
 
 struct TransferResult {
     bool success = false;
@@ -77,4 +77,4 @@ public:
 
 using DatabasePtr = std::shared_ptr<IDatabase>;
 
-} // namespace trustgraph::db
+} // namespace onyx::db

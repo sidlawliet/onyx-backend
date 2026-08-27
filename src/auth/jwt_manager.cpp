@@ -4,7 +4,7 @@
 
 using json = nlohmann::json;
 
-namespace trustgraph::auth {
+namespace onyx::auth {
 
 JwtManager::JwtManager(std::string secret_key, int64_t default_expiry_seconds)
     : secret_key_(std::move(secret_key)), default_expiry_seconds_(default_expiry_seconds) {}
@@ -125,4 +125,4 @@ std::optional<JwtTokenClaims> JwtManager::verify_token(const std::string& token)
     }
 }
 
-} // namespace trustgraph::auth
+} // namespace onyx::auth

@@ -5,7 +5,7 @@
 #include <cstdint>
 #include "utils/json.hpp"
 
-namespace trustgraph::auth {
+namespace onyx::auth {
 
 struct JwtTokenClaims {
     std::string user_id;
@@ -35,4 +35,4 @@ private:
     int64_t default_expiry_seconds_;
 };
 
-} // namespace trustgraph::auth
+} // namespace onyx::auth

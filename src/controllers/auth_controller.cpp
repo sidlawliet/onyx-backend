@@ -6,7 +6,7 @@
 #include <sstream>
 #include <cctype>
 
-namespace trustgraph::controllers {
+namespace onyx::controllers {
 
 namespace {
 
@@ -377,4 +377,4 @@ server::HttpResponse AuthController::get_my_account(const server::HttpRequest&, 
     return server::HttpResponse::json(200, account_opt->to_json());
 }
 
-} // namespace trustgraph::controllers
+} // namespace onyx::controllers

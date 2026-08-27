@@ -7,7 +7,7 @@
 #include "server/http_types.hpp"
 #include "auth/rbac_middleware.hpp"
 
-namespace trustgraph::server {
+namespace onyx::server {
 
 using RouteHandler = std::function<HttpResponse(const HttpRequest&, const auth::AuthContext&)>;
 
@@ -58,4 +58,4 @@ private:
     bool match_route(const Route& route, const std::vector<std::string>& path_segments, PathParamsMap& out_params) const;
 };
 
-} // namespace trustgraph::server
+} // namespace onyx::server

@@ -6,7 +6,7 @@
 #include "db/in_memory_store.hpp"
 #include "engine/fraud_engine.hpp"
 
-using namespace trustgraph;
+using namespace onyx;
 
 void test_normal_atomic_transfer() {
     std::cout << "[TEST] Running test_normal_atomic_transfer..." << std::endl;

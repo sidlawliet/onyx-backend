@@ -4,7 +4,7 @@
 #include <vector>
 #include "db/in_memory_store.hpp"
 
-using namespace trustgraph;
+using namespace onyx;
 
 void test_db_seeding_and_lookups() {
     std::cout << "[TEST] Running test_db_seeding_and_lookups..." << std::endl;

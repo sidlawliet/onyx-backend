@@ -2,7 +2,7 @@
 #include <queue>
 #include <algorithm>
 
-namespace trustgraph::engine {
+namespace onyx::engine {
 
 GraphEngine::GraphEngine(db::DatabasePtr db) : db_(std::move(db)) {}
 
@@ -171,4 +171,4 @@ nlohmann::json GraphEngine::compute_network_metrics() const {
     };
 }
 
-} // namespace trustgraph::engine
+} // namespace onyx::engine

@@ -7,7 +7,7 @@
 #include "server/router.hpp"
 #include "server/http_types.hpp"
 
-namespace trustgraph::controllers {
+namespace onyx::controllers {
 
 class AuthController {
 public:
@@ -25,4 +25,4 @@ private:
     std::shared_ptr<auth::JwtManager> jwt_manager_;
 };
 
-} // namespace trustgraph::controllers
+} // namespace onyx::controllers

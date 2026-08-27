@@ -3,7 +3,7 @@
 #include <string>
 #include "utils/json.hpp"
 
-namespace trustgraph::models {
+namespace onyx::models {
 
 struct FraudComplaint {
     std::string complaint_id;
@@ -31,4 +31,4 @@ struct FraudComplaint {
     }
 };
 
-} // namespace trustgraph::models
+} // namespace onyx::models

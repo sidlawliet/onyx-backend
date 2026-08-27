@@ -1,4 +1,4 @@
--- TrustGraph Financial Fraud Intelligence Engine
+-- ONYX Financial Fraud Intelligence Engine
 -- PostgreSQL Database Initialization Schema (v1.2)
 
 -- Ensure UUID extension is available if needed

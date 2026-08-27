@@ -22,7 +22,7 @@
 #include "controllers/auth_controller.hpp"
 
 using json = nlohmann::json;
-using namespace trustgraph;
+using namespace onyx;
 
 static std::atomic<bool> g_shutdown_requested{false};
 
@@ -35,24 +35,24 @@ int main() {
     std::signal(SIGTERM, signal_handler);
 
     utils::Logger::info("=================================================");
-    utils::Logger::info("   TrustGraph Financial Fraud Engine (v1.2)     ");
+    utils::Logger::info("   ONYX Financial Fraud Engine (v1.2)     ");
     utils::Logger::info("   C++ High-Performance Backend Engine           ");
     utils::Logger::info("=================================================");
 
     // 1. Initialize Database & Link Dataset
     auto db = std::make_shared<db::InMemoryStore>();
     std::string db_dir = "databases";
-    if (const char* env_dir = std::getenv("TRUSTGRAPH_DB_DIR")) {
+    if (const char* env_dir = std::getenv("ONYX_DB_DIR")) {
         db_dir = env_dir;
     }
     if (db->load_from_database_dir(db_dir)) {
-        utils::Logger::info("Linked TrustGraph Database from '" + db_dir + "': 1,000 accounts, 32,000 transactions, 5 scenarios active.");
+        utils::Logger::info("Linked ONYX Database from '" + db_dir + "': 1,000 accounts, 32,000 transactions, 5 scenarios active.");
     } else {
         utils::Logger::warn("Could not load database directory from '" + db_dir + "'; running with in-memory default fixtures.");
     }
 
     // 2. Initialize JWT Manager & RBAC Middleware
-    std::string jwt_secret = "trustgraph_super_secret_jwt_key_2026_x99!@";
+    std::string jwt_secret = "onyx_super_secret_jwt_key_2026_x99!@";
     auto jwt_manager = std::make_shared<auth::JwtManager>(jwt_secret, 86400);
     auto rbac_middleware = std::make_shared<auth::RbacMiddleware>(jwt_manager);
 
@@ -63,7 +63,7 @@ int main() {
     router->get("/api/v1/health", auth::RoleRequirement::PUBLIC, [](const server::HttpRequest&, const auth::AuthContext&) {
         json payload = {
             {"status", "HEALTHY"},
-            {"service", "TrustGraph C++ Backend Engine"},
+            {"service", "ONYX C++ Backend Engine"},
             {"version", "1.2.0"},
             {"timestamp", std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count()}
@@ -261,7 +261,7 @@ int main() {
         return 1;
     }
 
-    utils::Logger::info("TrustGraph Milestone 1 Core is running. Press Ctrl+C to terminate.");
+    utils::Logger::info("ONYX Milestone 1 Core is running. Press Ctrl+C to terminate.");
 
     while (!g_shutdown_requested) {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));

@@ -4,7 +4,7 @@
 #include <vector>
 #include <cstdint>
 
-namespace trustgraph::auth {
+namespace onyx::auth {
 
 class PasswordHasher {
 public:
@@ -23,4 +23,4 @@ private:
     static std::vector<uint8_t> pbkdf2_hmac_sha256(const std::string& password, const std::vector<uint8_t>& salt, uint32_t iterations, size_t dkLen);
 };
 
-} // namespace trustgraph::auth
+} // namespace onyx::auth

@@ -10,7 +10,7 @@
 #include "utils/json.hpp"
 
 using json = nlohmann::json;
-using namespace trustgraph;
+using namespace onyx;
 
 void test_complaints_and_taint_engine() {
     std::cout << "[TEST] Running test_complaints_and_taint_engine..." << std::endl;

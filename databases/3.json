@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "dataset_name": "TrustGraph Synthetic Banking Engine Benchmark",
+    "dataset_name": "ONYX Synthetic Banking Engine Benchmark",
     "version": "1.2.0",
     "total_accounts": 1000,
     "total_transactions": 32000,

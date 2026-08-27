@@ -7,7 +7,7 @@
 
 using json = nlohmann::json;
 
-namespace trustgraph::controllers {
+namespace onyx::controllers {
 
 ComplaintController::ComplaintController(std::shared_ptr<db::InMemoryStore> db)
     : db_(std::move(db)) {}
@@ -199,4 +199,4 @@ server::HttpResponse ComplaintController::update_complaint_status(const server::
     });
 }
 
-} // namespace trustgraph::controllers
+} // namespace onyx::controllers

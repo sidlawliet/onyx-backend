@@ -7,7 +7,7 @@
 #include "auth/jwt_manager.hpp"
 #include "server/http_types.hpp"
 
-namespace trustgraph::auth {
+namespace onyx::auth {
 
 enum class RoleRequirement {
     PUBLIC,
@@ -49,4 +49,4 @@ private:
     std::shared_ptr<JwtManager> jwt_manager_;
 };
 
-} // namespace trustgraph::auth
+} // namespace onyx::auth

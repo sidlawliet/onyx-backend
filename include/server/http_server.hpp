@@ -6,7 +6,7 @@
 #include <thread>
 #include "server/router.hpp"
 
-namespace trustgraph::server {
+namespace onyx::server {
 
 class HttpServer {
 public:
@@ -33,4 +33,4 @@ private:
     static HttpRequest parse_raw_http(const std::string& raw_data);
 };
 
-} // namespace trustgraph::server
+} // namespace onyx::server

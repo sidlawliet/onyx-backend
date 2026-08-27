@@ -3,7 +3,7 @@
 #include <sstream>
 #include <iomanip>
 
-namespace trustgraph::engine {
+namespace onyx::engine {
 
 FraudEvaluationResult FraudDetectionEngine::evaluate_transaction(
     const models::Account& sender,
@@ -86,4 +86,4 @@ FraudEvaluationResult FraudDetectionEngine::evaluate_transaction(
     return result;
 }
 
-} // namespace trustgraph::engine
+} // namespace onyx::engine

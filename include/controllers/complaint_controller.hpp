@@ -7,7 +7,7 @@
 #include "auth/rbac_middleware.hpp"
 #include "db/in_memory_store.hpp"
 
-namespace trustgraph::controllers {
+namespace onyx::controllers {
 
 class ComplaintController {
 public:
@@ -32,4 +32,4 @@ private:
     std::shared_ptr<db::InMemoryStore> db_;
 };
 
-} // namespace trustgraph::controllers
+} // namespace onyx::controllers

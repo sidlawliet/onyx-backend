@@ -5,7 +5,7 @@
 #include "auth/password_hasher.hpp"
 #include "auth/jwt_manager.hpp"
 
-using namespace trustgraph;
+using namespace onyx;
 
 void test_crypto_primitives() {
     std::cout << "[TEST] Running test_crypto_primitives..." << std::endl;

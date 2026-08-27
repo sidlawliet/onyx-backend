@@ -9,7 +9,7 @@
 #include <cmath>
 #include <fstream>
 
-namespace trustgraph::db {
+namespace onyx::db {
 
 namespace {
 std::string get_current_iso_timestamp() {
@@ -659,4 +659,4 @@ std::optional<models::GroundTruthAccount> InMemoryStore::find_ground_truth_accou
     return std::nullopt;
 }
 
-} // namespace trustgraph::db
+} // namespace onyx::db

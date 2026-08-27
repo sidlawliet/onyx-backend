@@ -10,7 +10,7 @@
 #include "utils/json.hpp"
 
 using json = nlohmann::json;
-using namespace trustgraph;
+using namespace onyx;
 
 void test_auth_login_and_rbac_pipeline() {
     std::cout << "[TEST] Running test_auth_login_and_rbac_pipeline..." << std::endl;

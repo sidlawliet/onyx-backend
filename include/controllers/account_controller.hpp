@@ -8,7 +8,7 @@
 #include "auth/rbac_middleware.hpp"
 #include "db/in_memory_store.hpp"
 
-namespace trustgraph::controllers {
+namespace onyx::controllers {
 
 class AccountController {
 public:
@@ -34,4 +34,4 @@ private:
     std::vector<std::string> generate_warning_reasons(const models::Account& acc, size_t complaints_count) const;
 };
 
-} // namespace trustgraph::controllers
+} // namespace onyx::controllers

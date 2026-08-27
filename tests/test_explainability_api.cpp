@@ -10,7 +10,7 @@
 #include "utils/json.hpp"
 
 using json = nlohmann::json;
-using namespace trustgraph;
+using namespace onyx;
 
 void test_explainability_and_risk_verification() {
     std::cout << "[TEST] Running test_explainability_and_risk_verification..." << std::endl;

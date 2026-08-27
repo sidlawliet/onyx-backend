@@ -5,7 +5,7 @@
 #include "engine/graph_engine.hpp"
 #include "auth/password_hasher.hpp"
 
-using namespace trustgraph;
+using namespace onyx;
 
 void test_database_linking_and_ingestion() {
     std::cout << "[TEST] Running test_database_linking_and_ingestion..." << std::endl;

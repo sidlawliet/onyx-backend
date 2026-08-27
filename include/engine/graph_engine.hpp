@@ -7,7 +7,7 @@
 #include "db/database_interface.hpp"
 #include "utils/json.hpp"
 
-namespace trustgraph::engine {
+namespace onyx::engine {
 
 class GraphEngine {
 public:
@@ -25,4 +25,4 @@ private:
 
 using GraphEnginePtr = std::shared_ptr<GraphEngine>;
 
-} // namespace trustgraph::engine
+} // namespace onyx::engine

@@ -7,7 +7,7 @@
 #include <chrono>
 #include <iomanip>
 
-namespace trustgraph::utils {
+namespace onyx::utils {
 
 enum class LogLevel {
     DEBUG_LEVEL,
@@ -61,4 +61,4 @@ private:
     std::mutex mutex_;
 };
 
-} // namespace trustgraph::utils
+} // namespace onyx::utils

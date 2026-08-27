@@ -1,10 +1,10 @@
-# Product Requirements Document (PRD): TrustGraph C++ Backend Engine (v1.2)
+# Product Requirements Document (PRD): ONYX C++ Backend Engine (v1.2)
 
 ---
 
 ## 1. Executive Summary & Objective
 
-**TrustGraph** is a real-time financial fraud intelligence engine designed to detect, analyze, and trace multi-hop fraud networks.
+**ONYX** is a real-time financial fraud intelligence engine designed to detect, analyze, and trace multi-hop fraud networks.
 
 This update (v1.2) introduces:
 - **Role-Based Authentication (RBAC):** Dual login flows (`CONSUMER` vs. `BANK_EMPLOYEE`) using JWT-based session security.
@@ -23,7 +23,7 @@ This update (v1.2) introduces:
                     HTTP Requests (Bearer JWT Header)
                                    ▼
 ┌───────────────────────────────────────────────────────────────────────┐
-│                        TrustGraph C++ Backend                         │
+│                        ONYX C++ Backend                         │
 │                                                                       │
 │  ┌─────────────────────────────────────────────────────────────────┐  │
 │  │ Auth & RBAC Middleware (JWT Validation + Role Checks)           │  │
