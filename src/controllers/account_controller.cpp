@@ -153,7 +153,7 @@ server::HttpResponse AccountController::verify_risk(const server::HttpRequest& r
 
     // Normalize risk score to 0.0 - 100.0 scale
     double score = acc.risk_score;
-    if (score > 0.0 && score <= 1.0) {
+    if (score > 0.0 && score < 1.0) {
         score *= 100.0;
     }
     score = std::min(100.0, std::max(0.0, score));

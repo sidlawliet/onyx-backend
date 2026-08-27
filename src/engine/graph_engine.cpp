@@ -62,7 +62,7 @@ nlohmann::json GraphEngine::extract_subgraph(const std::string& root_account_id,
             }
 
             double score = acc.risk_score;
-            if (score > 0.0 && score <= 1.0) {
+            if (score > 0.0 && score < 1.0) {
                 score *= 100.0;
             }
             score = std::min(100.0, std::max(0.0, score));
