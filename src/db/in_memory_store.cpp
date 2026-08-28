@@ -12,12 +12,28 @@
 namespace onyx::db {
 
 namespace {
-std::string get_current_iso_timestamp() {
+inline std::string get_current_iso_timestamp() {
     auto now = std::chrono::system_clock::now();
     auto in_time_t = std::chrono::system_clock::to_time_t(now);
     std::stringstream ss;
     ss << std::put_time(std::gmtime(&in_time_t), "%Y-%m-%dT%H:%M:%SZ");
     return ss.str();
+}
+
+inline std::string to_lower_copy(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        out += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return out;
+}
+
+inline std::string trim_copy(std::string_view s) {
+    size_t first = s.find_first_not_of(" \t\r\n");
+    if (first == std::string_view::npos) return "";
+    size_t last = s.find_last_not_of(" \t\r\n");
+    return std::string(s.substr(first, (last - first + 1)));
 }
 } // anonymous namespace
 
@@ -217,17 +233,33 @@ std::vector<models::User> InMemoryStore::list_users() {
 
 // Account Operations
 std::optional<models::Account> InMemoryStore::find_account_by_id(const std::string& account_id) {
+    std::string clean = trim_copy(account_id);
+    if (clean.empty()) return std::nullopt;
+
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = accounts_by_id_.find(account_id);
+    // 1. Exact match
+    auto it = accounts_by_id_.find(clean);
     if (it != accounts_by_id_.end()) {
         return it->second;
+    }
+
+    // 2. Case-insensitive search across accounts_by_id_
+    std::string lower = to_lower_copy(clean);
+    for (const auto& [id, acc] : accounts_by_id_) {
+        if (to_lower_copy(id) == lower) {
+            return acc;
+        }
     }
     return std::nullopt;
 }
 
 std::optional<models::Account> InMemoryStore::find_account_by_upi(const std::string& upi_id) {
+    std::string clean = trim_copy(upi_id);
+    if (clean.empty()) return std::nullopt;
+
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = account_id_by_upi_.find(upi_id);
+    // 1. Direct exact match in account_id_by_upi_
+    auto it = account_id_by_upi_.find(clean);
     if (it != account_id_by_upi_.end()) {
         auto a_it = accounts_by_id_.find(it->second);
         if (a_it != accounts_by_id_.end()) {
@@ -235,17 +267,42 @@ std::optional<models::Account> InMemoryStore::find_account_by_upi(const std::str
         }
     }
 
-    // Secondary fallback: fuzzy match by UPI prefix/handle (e.g. rajesh.mule matches rajesh.mule.aggregator)
-    std::string prefix = upi_id;
-    size_t at_pos = upi_id.find('@');
-    if (at_pos != std::string::npos) {
-        prefix = upi_id.substr(0, at_pos);
-    }
+    // 2. Case-insensitive search across account_id_by_upi_
+    std::string lower = to_lower_copy(clean);
     for (const auto& [u_id, acc_id] : account_id_by_upi_) {
-        if (u_id == upi_id || (!prefix.empty() && u_id.find(prefix) != std::string::npos)) {
+        if (to_lower_copy(u_id) == lower) {
             auto a_it = accounts_by_id_.find(acc_id);
             if (a_it != accounts_by_id_.end()) {
                 return a_it->second;
+            }
+        }
+    }
+
+    // 3. Direct match across accounts_by_id_ (by upi_id or account_id)
+    for (const auto& [acc_id, acc] : accounts_by_id_) {
+        if (to_lower_copy(acc.upi_id) == lower || to_lower_copy(acc.account_id) == lower) {
+            return acc;
+        }
+    }
+
+    // 4. Secondary fallback: handle bidirectional prefix/handle match (e.g. rajesh.mule matches rajesh.mule.aggregator@oksbi)
+    std::string prefix = lower;
+    size_t at_pos = lower.find('@');
+    if (at_pos != std::string::npos) {
+        prefix = lower.substr(0, at_pos);
+    }
+    if (!prefix.empty()) {
+        for (const auto& [acc_id, acc] : accounts_by_id_) {
+            std::string acc_upi_lower = to_lower_copy(acc.upi_id);
+            std::string acc_prefix = acc_upi_lower;
+            size_t acc_at = acc_upi_lower.find('@');
+            if (acc_at != std::string::npos) {
+                acc_prefix = acc_upi_lower.substr(0, acc_at);
+            }
+            if (acc_upi_lower.find(prefix) != std::string::npos ||
+                prefix.find(acc_prefix) != std::string::npos ||
+                acc_prefix.find(prefix) != std::string::npos) {
+                return acc;
             }
         }
     }
