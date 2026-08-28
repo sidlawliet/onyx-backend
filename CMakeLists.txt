@@ -10,6 +10,9 @@ if (MSVC)
     add_compile_options(/W4 /EHsc /O2)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic -O3)
+    if (NOT WIN32)
+        add_link_options(-static-libgcc -static-libstdc++)
+    endif()
 endif()
 
 # Include directories

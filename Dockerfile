@@ -13,7 +13,7 @@ COPY include/ ./include/
 COPY src/ ./src/
 COPY tests/ ./tests/
 
-RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
 RUN cmake --build build --target onyx_server
 
 # Stage 2: Minimal Runtime
